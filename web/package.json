@@ -4,10 +4,13 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
+    "predev": "node scripts/generar-config.mjs",
     "dev": "vite",
+    "prebuild": "node scripts/generar-config.mjs",
     "build": "tsc -b && vite build",
     "lint": "oxlint",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "paridad": "node --import tsx scripts/paridad.mjs"
   },
   "dependencies": {
     "lucide-react": "^1.49.0",
@@ -20,7 +23,9 @@
     "@types/react-dom": "^19.2.7",
     "@vitejs/plugin-react": "^6.1.1",
     "oxlint": "^1.81.0",
+    "tsx": "^4.20.5",
     "typescript": "~6.0.2",
-    "vite": "^8.3.0"
+    "vite": "^8.3.0",
+    "yaml": "^2.8.1"
   }
 }

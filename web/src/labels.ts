@@ -97,11 +97,18 @@ export function caResultLabel(r: ResultadoCA): string {
 }
 
 export function formatCurrency(amount: number): string {
-  return new Intl.NumberFormat('es-CR', {
-    style: 'currency',
-    currency: 'USD',
-    maximumFractionDigits: 0,
-  }).format(amount)
+  const n = new Intl.NumberFormat('es-CR', { maximumFractionDigits: 0 }).format(amount)
+  return `${n} USDC`
+}
+
+export function repoFromIdOrUrl(id: string, prUrl?: string): string {
+  const m = /^([^/#]+)\/([^/#]+)#/.exec(id)
+  if (m) return `${m[1]}/${m[2]}`
+  if (prUrl) {
+    const u = /github\.com\/([^/]+)\/([^/]+)/i.exec(prUrl)
+    if (u) return `${u[1]}/${u[2]}`
+  }
+  return id
 }
 
 export function shortHash(hash: string | undefined, len = 12): string {

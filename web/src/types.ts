@@ -151,11 +151,15 @@ export interface Execution {
   entradaHash?: string
 }
 
+export type ModoEjecucionSalida = 'real' | 'simulado'
+
 export interface Salida {
   contributionId: string
   executedAt: string
   model: ModeloInfo
+  modoEjecucion?: ModoEjecucionSalida
   instructionVersion: string
+  headSha?: string | null
   admissibility: Admisibilidad
   fileClassification: FileClassification
   criteria: Criterio[]
@@ -174,7 +178,20 @@ export interface CasoRevision {
   salida: Salida
 }
 
-export type PasoProceso = 1 | 2 | 3 | 4 | 5 | 6 | 7
+/** Origen del ítem en la cola de revisión. */
+export type FuenteCaso = 'por_defecto' | 'enlace' | 'archivo'
+
+/**
+ * Ítem de la cola. `salida` puede ser null hasta que se ejecute el paso 2
+ * (cálculo bajo demanda con `procesarEntrada` en el navegador).
+ */
+export interface ItemCola {
+  entrada: Entrada
+  salida: Salida | null
+  fuente: FuenteCaso
+  /** true = hay que calcular salida la primera vez que se necesita. */
+  pendienteCalculo: boolean
+}
 
 export type DecisionFinal = RecomendacionValor
 
