@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import sys
 from collections import defaultdict
 from pathlib import Path
 from typing import Any
@@ -10,6 +11,15 @@ from typing import Any
 from revision.normalizar import cargar_golden, normalizar
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
+_GOLDEN_SET = (_REPO_ROOT / "data" / "golden-set.jsonl").resolve()
+
+
+def es_ruta_golden_set(casos_path: str | Path) -> bool:
+    """True si la ruta de casos apunta al golden set local (no publicable)."""
+    path = Path(casos_path)
+    if path.is_absolute():
+        return path.resolve() == _GOLDEN_SET
+    return (_REPO_ROOT / path).resolve() == _GOLDEN_SET
 
 
 def _carpeta_abs(carpeta: str | Path) -> Path:
@@ -74,10 +84,18 @@ def exportar_web(
     carpeta_runs: str | Path = "runs",
     casos_path: str | Path | None = None,
     destino: str | Path = "web/public/datos.json",
-) -> Path:
+) -> Path | None:
     """Escribe un JSON con {entrada, salida} por caso, ordenado por id."""
     if casos_path is None:
         raise ValueError("casos_path es obligatorio para exportar_web")
+
+    if es_ruta_golden_set(casos_path):
+        print(
+            "Advertencia: no se exporta a la web cuando --casos es "
+            "data/golden-set.jsonl (conjunto local con etiquetas).",
+            file=sys.stderr,
+        )
+        return None
 
     carpeta = _carpeta_abs(carpeta_runs)
     dest = Path(destino)

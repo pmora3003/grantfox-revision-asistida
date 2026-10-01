@@ -1,28 +1,37 @@
 import { Monitor, Moon, Sun } from 'lucide-react'
-import type { ItemCola } from '../types'
-import { todosCasosEnModoReal } from '../modoEjecucion'
-import { resumenFuentes } from '../colaPersistencia'
+import type { ModoEjecucionSalida } from '../types'
 import type { ThemePref } from '../theme'
 
 type Props = {
-  items?: ItemCola[]
   themePref: ThemePref
   onThemeChange: (p: ThemePref) => void
+  /** Badge de modo de ejecución opcional (vista actual). */
+  modoEjecucion?: ModoEjecucionSalida | null
+  modelVersion?: string
+  /** Texto corto de contexto (p. ej. nombre de corrida). */
+  contextoBadge?: string
+  onBrandClick?: () => void
 }
 
-export function Header({ items = [], themePref, onThemeChange }: Props) {
-  const withSalida = items.filter((i) => i.salida)
-  const allReal =
-    withSalida.length > 0 &&
-    todosCasosEnModoReal(withSalida.map((i) => ({ entrada: i.entrada, salida: i.salida! })))
-  const modelVersion = withSalida[0]?.salida?.model.version ?? ''
-  const fuenteSummary = resumenFuentes(items)
-
+export function Header({
+  themePref,
+  onThemeChange,
+  modoEjecucion = null,
+  modelVersion = '',
+  contextoBadge,
+  onBrandClick,
+}: Props) {
   return (
     <header className="site-header">
       <div className="site-header-row">
         <div className="site-header-text">
-          <h1>Revisión asistida de contribuciones</h1>
+          {onBrandClick ? (
+            <button type="button" className="brand-link" onClick={onBrandClick}>
+              <h1>Revisión asistida de contribuciones</h1>
+            </button>
+          ) : (
+            <h1>Revisión asistida de contribuciones</h1>
+          )}
           <p className="subtitle">
             Prototipo GrantFox. La recomendación no es vinculante y la confirma una persona
             revisora.
@@ -59,17 +68,16 @@ export function Header({ items = [], themePref, onThemeChange }: Props) {
         </div>
       </div>
       <div className="header-badges">
-        <span className="badge-demo">{fuenteSummary}</span>
-        {withSalida.length > 0 &&
-          (allReal ? (
-            <span className="badge-execution badge-execution-real">
-              Análisis con modelo{modelVersion ? `: ${modelVersion}` : ''}
-            </span>
-          ) : (
-            <span className="badge-execution badge-execution-simulado">
-              Análisis simulado (sin API key)
-            </span>
-          ))}
+        {contextoBadge && <span className="badge-demo">{contextoBadge}</span>}
+        {modoEjecucion === 'real' ? (
+          <span className="badge-execution badge-execution-real">
+            Análisis con modelo{modelVersion ? `: ${modelVersion}` : ''}
+          </span>
+        ) : modoEjecucion === 'simulado' ? (
+          <span className="badge-execution badge-execution-simulado">
+            Análisis simulado (sin API key)
+          </span>
+        ) : null}
       </div>
     </header>
   )

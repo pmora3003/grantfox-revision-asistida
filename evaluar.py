@@ -7,6 +7,7 @@ import json
 import statistics
 import sys
 from collections import Counter, defaultdict
+from datetime import date
 from pathlib import Path
 from typing import Any
 
@@ -129,6 +130,7 @@ def evaluar(golden_path: Path, carpeta: Path) -> dict[str, Any]:
     }
 
     duraciones: list[float] = []
+    modos_ejecucion: set[str] = set()
 
     for registro in golden:
         cid = str(registro.get("id") or "")
@@ -146,6 +148,9 @@ def evaluar(golden_path: Path, carpeta: Path) -> dict[str, Any]:
         suggested = None
         es_adm = False
         if completa:
+            modo = completa.get("modoEjecucion")
+            if modo in ("real", "simulado"):
+                modos_ejecucion.add(str(modo))
             banda = (completa.get("confidence") or {}).get("band") or "bajo"
             suggested = (completa.get("reward") or {}).get("suggestedLevel")
             es_adm = (completa.get("admissibility") or {}).get("outcome") == "no_admisible"
@@ -265,7 +270,10 @@ def evaluar(golden_path: Path, carpeta: Path) -> dict[str, Any]:
             "n": len(duraciones),
             "median": float(statistics.median(duraciones)) if duraciones else None,
             "p90": _p90(duraciones) if duraciones else None,
+            "min": min(duraciones) if duraciones else None,
+            "max": max(duraciones) if duraciones else None,
         },
+        "modos_ejecucion": sorted(modos_ejecucion),
         "calibration": {
             banda: {
                 "n": datos["n"],
@@ -388,6 +396,67 @@ def _md(metricas: dict[str, Any]) -> str:
     return "\n".join(lineas)
 
 
+def _modo_ejecucion_agregado(modos: list[str]) -> str:
+    if not modos:
+        return "simulado"
+    if len(modos) == 1:
+        return modos[0]
+    return "mixto"
+
+
+def metricas_publicas(metricas: dict[str, Any]) -> dict[str, Any]:
+    """Solo agregados, sin ids ni datos por caso (publicacion web)."""
+    a = metricas["agreement"]
+    split = metricas["admissibility_split"]
+    tier = metricas["tier_agreement"]
+    dur = metricas["duration_ms"]
+    cons = metricas["consistency"]
+
+    salida: dict[str, Any] = {
+        "fecha": date.today().isoformat(),
+        "modoEjecucion": _modo_ejecucion_agregado(metricas.get("modos_ejecucion") or []),
+        "totalCasos": metricas["n_scored"],
+        "excluidos": metricas["n_excluded"],
+        "acuerdoTotal": {
+            "aciertos": a["aciertos"],
+            "total": metricas["n_scored"],
+            "proporcion": a["total"],
+        },
+        "acuerdoPorClase": {
+            c: {"aciertos": a["por_clase"][c]["aciertos"], "total": a["por_clase"][c]["n"]}
+            for c in CLASES
+        },
+        "matrizConfusion": metricas["confusion_matrix"],
+        "admisibilidad": {
+            "aciertos": split["admissibility_resolved"]["aciertos"],
+            "total": split["admissibility_resolved"]["n"],
+        },
+        "contenido": {
+            "aciertos": split["content"]["aciertos"],
+            "total": split["content"]["n"],
+        },
+        "acuerdoNivel": {"aciertos": tier["aciertos"], "total": tier["n"]},
+        "duracionMs": {
+            "mediana": dur["median"],
+            "p90": dur["p90"],
+            "min": dur["min"],
+            "max": dur["max"],
+        },
+        "calibracion": {
+            banda: {"casos": datos["n"], "aciertos": datos["aciertos"]}
+            for banda, datos in metricas["calibration"].items()
+        },
+    }
+    if cons.get("criteria_compared", 0) > 0:
+        salida["consistencia"] = {
+            "pares": cons["pares"],
+            "criteriosComparados": cons["criteria_compared"],
+            "identicos": cons["identical"],
+            "proporcion": cons["ratio"],
+        }
+    return salida
+
+
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description="Evalua runs contra el golden set")
     parser.add_argument(
@@ -398,6 +467,11 @@ def main(argv: list[str] | None = None) -> None:
         "--carpeta",
         default=str(_REPO_ROOT / "runs"),
         help="Carpeta con registro.jsonl y salidas",
+    )
+    parser.add_argument(
+        "--publicar",
+        action="store_true",
+        help="Escribe web/public/metricas.json (solo agregados, sin casos)",
     )
     args = parser.parse_args(argv)
 
@@ -423,6 +497,16 @@ def main(argv: list[str] | None = None) -> None:
     md = _md(metricas)
     (out_dir / "metricas.md").write_text(md, encoding="utf-8")
     print(md)
+
+    if args.publicar:
+        pub = metricas_publicas(metricas)
+        pub_path = _REPO_ROOT / "web" / "public" / "metricas.json"
+        pub_path.parent.mkdir(parents=True, exist_ok=True)
+        pub_path.write_text(
+            json.dumps(pub, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        print(f"\nPublicado: {pub_path.relative_to(_REPO_ROOT)}", file=sys.stderr)
 
 
 if __name__ == "__main__":

@@ -1,0 +1,87 @@
+{
+  "fecha": "2026-09-30",
+  "modoEjecucion": "simulado",
+  "totalCasos": 57,
+  "excluidos": 9,
+  "acuerdoTotal": {
+    "aciertos": 26,
+    "total": 57,
+    "proporcion": 0.4561
+  },
+  "acuerdoPorClase": {
+    "aprobar": {
+      "aciertos": 3,
+      "total": 29
+    },
+    "rechazar": {
+      "aciertos": 22,
+      "total": 23
+    },
+    "ajustar_monto": {
+      "aciertos": 1,
+      "total": 5
+    },
+    "derivar_revision_humana": {
+      "aciertos": 0,
+      "total": 0
+    }
+  },
+  "matrizConfusion": {
+    "aprobar": {
+      "aprobar": 3,
+      "rechazar": 3,
+      "ajustar_monto": 12,
+      "derivar_revision_humana": 11
+    },
+    "rechazar": {
+      "aprobar": 0,
+      "rechazar": 22,
+      "ajustar_monto": 0,
+      "derivar_revision_humana": 1
+    },
+    "ajustar_monto": {
+      "aprobar": 0,
+      "rechazar": 1,
+      "ajustar_monto": 1,
+      "derivar_revision_humana": 3
+    },
+    "derivar_revision_humana": {
+      "aprobar": 0,
+      "rechazar": 0,
+      "ajustar_monto": 0,
+      "derivar_revision_humana": 0
+    }
+  },
+  "admisibilidad": {
+    "aciertos": 20,
+    "total": 20
+  },
+  "contenido": {
+    "aciertos": 6,
+    "total": 37
+  },
+  "acuerdoNivel": {
+    "aciertos": 9,
+    "total": 34
+  },
+  "duracionMs": {
+    "mediana": 7.0,
+    "p90": 22.0,
+    "min": 2.0,
+    "max": 75.0
+  },
+  "calibracion": {
+    "alto": {
+      "casos": 20,
+      "aciertos": 20
+    },
+    "medio": {
+      "casos": 21,
+      "aciertos": 6
+    },
+    "bajo": {
+      "casos": 16,
+      "aciertos": 0
+    }
+  }
+}

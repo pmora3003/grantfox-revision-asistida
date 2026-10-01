@@ -1,43 +1,29 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { CasoRevision, ItemCola } from './types'
-import type { EntryProgress, ManualStepId, RevealedStep } from './steps'
-import {
-  hasReachedAgregacion,
-  initialProgress,
-  MANUAL_STEPS,
-  nextStep,
-  processingDelayMs,
-  revealedIds,
-  stepDef,
-} from './steps'
+import type { CasoRevision, Corrida, DecisionHumana } from './types'
 import { procesarEntrada } from './motor'
+import {
+  DEMO_CORRIDA_ID,
+  buildDemoCorrida,
+  loadStoredCorridas,
+  persistSnapshot,
+  resetDemoProgress,
+} from './corridasStore'
+import { TOTAL_ETAPAS, stageAnimDelayMs, resumenTrasEtapa } from './etapas'
+import { applyTheme, loadThemePref, saveThemePref, type ThemePref } from './theme'
 import { Header } from './components/Header'
 import { Footer } from './components/Footer'
-import { ReviewQueue } from './components/ReviewQueue'
-import { ResultCard } from './components/ResultCard'
-import { StepPipeline } from './components/StepContent'
-import { CaseStickyBar, MobileActionBar } from './components/CaseStickyBar'
-import { AddContributionsModal } from './components/AddContributionsModal'
-import {
-  clearAgregados,
-  loadAgregados,
-  saveAgregados,
-} from './colaPersistencia'
-import { applyTheme, loadThemePref, saveThemePref, type ThemePref } from './theme'
+import { InicioView } from './components/InicioView'
+import { NuevaCorridaModal } from './components/NuevaCorridaModal'
+import { CorridaView, bannerForEtapa } from './components/CorridaView'
+import { DetallePRView } from './components/DetallePRView'
+import { RecorridoGuiado } from './components/RecorridoGuiado'
 import './styles.css'
 
-function sortDefaults(cases: CasoRevision[]): CasoRevision[] {
-  return [...cases].sort((a, b) => b.salida.priority.score - a.salida.priority.score)
-}
-
-function toDefaultItems(cases: CasoRevision[]): ItemCola[] {
-  return sortDefaults(cases).map((c) => ({
-    entrada: c.entrada,
-    salida: c.salida,
-    fuente: 'por_defecto' as const,
-    pendienteCalculo: false,
-  }))
-}
+type View =
+  | { name: 'inicio' }
+  | { name: 'corrida'; corridaId: string }
+  | { name: 'detalle'; corridaId: string; itemId: string }
+  | { name: 'recorrido' }
 
 function sleep(ms: number) {
   return new Promise<void>((resolve) => {
@@ -45,44 +31,35 @@ function sleep(ms: number) {
   })
 }
 
-function admitFailed(item: ItemCola): boolean {
-  return item.salida?.admissibility.outcome === 'no_admisible'
-}
-
-function applySkipToAgregacion(progress: EntryProgress): EntryProgress {
-  const done = revealedIds(progress)
-  const added: RevealedStep[] = []
-  for (const s of MANUAL_STEPS) {
-    if (done.has(s.id)) continue
-    if (s.omitOnAdmitFail) {
-      added.push({ id: s.id, status: 'omitted' })
-    } else if (s.id === 'agregacion') {
-      added.push({ id: s.id, status: 'done' })
-      break
-    }
-  }
-  return { revealed: [...progress.revealed, ...added] }
+function sortCorridas(list: Corrida[]): Corrida[] {
+  return [...list].sort((a, b) => {
+    if (a.id === DEMO_CORRIDA_ID) return -1
+    if (b.id === DEMO_CORRIDA_ID) return 1
+    return (b.creadaEn || '').localeCompare(a.creadaEn || '')
+  })
 }
 
 export default function App() {
-  const [items, setItems] = useState<ItemCola[]>([])
-  const [loadError, setLoadError] = useState<string | null>(null)
+  const [corridas, setCorridas] = useState<Corrida[]>([])
   const [loading, setLoading] = useState(true)
-  const [selectedId, setSelectedId] = useState<string | null>(null)
-  const [progressById, setProgressById] = useState<Record<string, EntryProgress>>({})
-  const [processingId, setProcessingId] = useState<ManualStepId | null>(null)
-  const [processingText, setProcessingText] = useState('')
-  const [busy, setBusy] = useState(false)
-  const [modalOpen, setModalOpen] = useState(false)
+  const [loadError, setLoadError] = useState<string | null>(null)
   const [persistAviso, setPersistAviso] = useState<string | null>(null)
   const [themePref, setThemePref] = useState<ThemePref>(() => loadThemePref())
+  const [view, setView] = useState<View>({ name: 'inicio' })
+  const [modalOpen, setModalOpen] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const [computingSalidas, setComputingSalidas] = useState(false)
+  const [processingItemId, setProcessingItemId] = useState<string | null>(null)
+  const [stageBanner, setStageBanner] = useState<{ titulo: string; detalle: string } | null>(
+    null,
+  )
+  const [tourPaused, setTourPaused] = useState(false)
   const cancelRun = useRef(false)
-  const lastPanelRef = useRef<HTMLElement | null>(null)
-  const itemsRef = useRef(items)
+  const corridasRef = useRef(corridas)
 
   useEffect(() => {
-    itemsRef.current = items
-  }, [items])
+    corridasRef.current = corridas
+  }, [corridas])
 
   useEffect(() => {
     applyTheme(themePref)
@@ -97,6 +74,26 @@ export default function App() {
     return () => mq.removeEventListener('change', onChange)
   }, [themePref])
 
+  const persist = useCallback((next: Corrida[]) => {
+    const result = persistSnapshot(next)
+    if (result.ok && result.mode === 'memoria') {
+      setPersistAviso(result.aviso)
+    } else {
+      setPersistAviso(null)
+    }
+  }, [])
+
+  const updateCorridas = useCallback(
+    (updater: (prev: Corrida[]) => Corrida[]) => {
+      setCorridas((prev) => {
+        const next = sortCorridas(updater(prev))
+        persist(next)
+        return next
+      })
+    },
+    [persist],
+  )
+
   useEffect(() => {
     const url = `${import.meta.env.BASE_URL}datos.json`
     fetch(url)
@@ -105,226 +102,204 @@ export default function App() {
         return r.json()
       })
       .then((data: CasoRevision[]) => {
-        const defaults = toDefaultItems(data)
-        const extras = loadAgregados()
-        const merged = [...defaults, ...extras]
-        setItems(merged)
-        const initial: Record<string, EntryProgress> = {}
-        for (const c of merged) {
-          initial[c.entrada.id] = initialProgress()
-        }
-        setProgressById(initial)
+        const stored = loadStoredCorridas()
+        const demo = buildDemoCorrida(data, stored.demo)
+        setCorridas(sortCorridas([demo, ...stored.userCorridas]))
       })
       .catch((e: Error) => setLoadError(e.message ?? 'Error al cargar datos'))
       .finally(() => setLoading(false))
   }, [])
 
-  const persistExtras = useCallback((next: ItemCola[]) => {
-    const result = saveAgregados(next)
-    if (result.ok && result.mode === 'memoria') {
-      setPersistAviso(result.aviso)
-    } else {
-      setPersistAviso(null)
+  const currentCorrida = useMemo(() => {
+    if (view.name === 'corrida' || view.name === 'detalle') {
+      return corridas.find((c) => c.id === view.corridaId) ?? null
     }
-  }, [])
+    return null
+  }, [view, corridas])
 
-  const selected = useMemo(
-    () => items.find((c) => c.entrada.id === selectedId) ?? null,
-    [items, selectedId],
+  const demoCorrida = useMemo(
+    () => corridas.find((c) => c.id === DEMO_CORRIDA_ID) ?? null,
+    [corridas],
   )
 
-  const progress = selectedId
-    ? (progressById[selectedId] ?? initialProgress())
-    : initialProgress()
+  const headerModo = useMemo(() => {
+    if (view.name === 'corrida' || view.name === 'detalle') {
+      return currentCorrida?.modoEjecucion ?? null
+    }
+    if (view.name === 'recorrido') return demoCorrida?.modoEjecucion ?? null
+    return null
+  }, [view, currentCorrida, demoCorrida])
 
-  const upcoming = nextStep(progress)
-  const shouldJumpToAgg =
-    !!selected &&
-    !!upcoming &&
-    !!upcoming.omitOnAdmitFail &&
-    admitFailed(selected)
+  const headerModel = useMemo(() => {
+    const c = view.name === 'recorrido' ? demoCorrida : currentCorrida
+    const s = c?.items.find((i) => i.salida)?.salida
+    return s?.model.version ?? ''
+  }, [view, currentCorrida, demoCorrida])
 
-  useEffect(() => {
-    if (!lastPanelRef.current) return
-    lastPanelRef.current.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
-  }, [progress.revealed.length, processingId])
-
-  const updateProgress = useCallback((id: string, next: EntryProgress) => {
-    setProgressById((prev) => ({ ...prev, [id]: next }))
-  }, [])
-
-  const ensureSalida = useCallback(
-    async (item: ItemCola): Promise<ItemCola> => {
-      if (item.salida) return item
-      setProcessingText('Calculando análisis simulado en el navegador…')
-      const salida = await procesarEntrada(item.entrada)
-      const updated: ItemCola = {
-        ...item,
-        salida,
-        pendienteCalculo: false,
-      }
-      setItems((prev) => {
-        const next = prev.map((x) => (x.entrada.id === item.entrada.id ? updated : x))
-        persistExtras(next)
-        return next
-      })
-      return updated
-    },
-    [persistExtras],
-  )
-
-  const runOneStep = useCallback(
-    async (item: ItemCola, current: EntryProgress): Promise<EntryProgress> => {
-      const upcomingStep = nextStep(current)
-      if (!upcomingStep) return current
-
-      let working = item
-      if (upcomingStep.id !== 'entrada' && (working.pendienteCalculo || !working.salida)) {
-        setProcessingId(upcomingStep.id)
-        working = await ensureSalida(working)
-        if (cancelRun.current) {
-          setProcessingId(null)
-          return current
+  async function ensureSalidas(corrida: Corrida): Promise<Corrida> {
+    const needs = corrida.items.some((i) => !i.salida)
+    if (!needs) return corrida
+    setComputingSalidas(true)
+    try {
+      const items = []
+      for (const it of corrida.items) {
+        if (it.salida) {
+          items.push(it)
+          continue
         }
+        setProcessingItemId(it.id)
+        const salida = await procesarEntrada(it.entrada)
+        items.push({ ...it, salida })
       }
+      setProcessingItemId(null)
+      return { ...corrida, items, modoEjecucion: 'simulado' }
+    } finally {
+      setComputingSalidas(false)
+    }
+  }
 
-      const jump = upcomingStep.omitOnAdmitFail && admitFailed(working)
-      if (jump) {
-        setProcessingId('agregacion')
-        setProcessingText(stepDef('agregacion').processing)
-        await sleep(processingDelayMs())
-        if (cancelRun.current) {
-          setProcessingId(null)
-          return current
-        }
-        const next = applySkipToAgregacion(current)
-        updateProgress(working.entrada.id, next)
-        setProcessingId(null)
-        return next
-      }
+  async function runEtapa(corridaId: string, etapaNum: number): Promise<Corrida | null> {
+    let corrida = corridasRef.current.find((c) => c.id === corridaId)
+    if (!corrida) return null
 
-      setProcessingId(upcomingStep.id)
-      setProcessingText(upcomingStep.processing)
-      await sleep(processingDelayMs())
-      if (cancelRun.current) {
-        setProcessingId(null)
-        return current
+    if (etapaNum === 1 || !corrida.iniciadaEn) {
+      corrida = await ensureSalidas(corrida)
+      if (cancelRun.current) return null
+      corrida = {
+        ...corrida,
+        iniciadaEn: corrida.iniciadaEn ?? new Date().toISOString(),
       }
-      const next: EntryProgress = {
-        revealed: [...current.revealed, { id: upcomingStep.id, status: 'done' }],
-      }
-      updateProgress(working.entrada.id, next)
-      setProcessingId(null)
-      return next
-    },
-    [ensureSalida, updateProgress],
-  )
+      updateCorridas((prev) => prev.map((c) => (c.id === corridaId ? corrida! : c)))
+    }
 
-  async function handleExecuteNext() {
-    if (!selected || busy || !upcoming) return
+    const items = [...corrida.items]
+    for (let i = 0; i < items.length; i++) {
+      if (cancelRun.current) return null
+      const it = items[i]!
+      setProcessingItemId(it.id)
+      await sleep(stageAnimDelayMs())
+      items[i] = { ...it, etapaAlcanzada: Math.max(it.etapaAlcanzada, etapaNum) }
+      const partial: Corrida = {
+        ...corrida,
+        items: [...items],
+        etapaActual: Math.max(corrida.etapaActual, etapaNum - 1),
+      }
+      updateCorridas((prev) => prev.map((c) => (c.id === corridaId ? partial : c)))
+    }
+    setProcessingItemId(null)
+
+    const finalizadaEn =
+      etapaNum >= TOTAL_ETAPAS ? new Date().toISOString() : corrida.finalizadaEn
+    const done: Corrida = {
+      ...corrida,
+      items: items.map((it) => ({
+        ...it,
+        etapaAlcanzada: Math.max(it.etapaAlcanzada, etapaNum),
+      })),
+      etapaActual: etapaNum,
+      iniciadaEn: corrida.iniciadaEn ?? new Date().toISOString(),
+      finalizadaEn,
+    }
+    updateCorridas((prev) => prev.map((c) => (c.id === corridaId ? done : c)))
+    setStageBanner(bannerForEtapa(etapaNum, done.items))
+    return done
+  }
+
+  async function handlePrimary(corridaId: string) {
+    const corrida = corridasRef.current.find((c) => c.id === corridaId)
+    if (!corrida || busy) return
     cancelRun.current = false
     setBusy(true)
     try {
-      const latest = itemsRef.current.find((i) => i.entrada.id === selected.entrada.id) ?? selected
-      await runOneStep(latest, progress)
+      if (!corrida.iniciadaEn) {
+        const withSalidas = await ensureSalidas(corrida)
+        if (cancelRun.current) return
+        const started: Corrida = {
+          ...withSalidas,
+          iniciadaEn: new Date().toISOString(),
+        }
+        updateCorridas((prev) => prev.map((c) => (c.id === corridaId ? started : c)))
+        setStageBanner({
+          titulo: 'Corrida iniciada.',
+          detalle: 'Pulse Ejecutar etapa 1 para comenzar la admisibilidad.',
+        })
+        return
+      }
+      if (corrida.etapaActual >= TOTAL_ETAPAS) return
+      await runEtapa(corridaId, corrida.etapaActual + 1)
     } finally {
       setBusy(false)
+      setProcessingItemId(null)
+      setComputingSalidas(false)
     }
   }
 
-  async function handleExecuteAll() {
-    if (!selected || busy) return
+  async function handleEjecutarTodas(corridaId: string) {
+    const corrida = corridasRef.current.find((c) => c.id === corridaId)
+    if (!corrida || busy) return
     cancelRun.current = false
     setBusy(true)
     try {
-      let current = progressById[selected.entrada.id] ?? initialProgress()
-      while (nextStep(current) && !cancelRun.current) {
-        const latest =
-          itemsRef.current.find((i) => i.entrada.id === selected.entrada.id) ?? selected
-        current = await runOneStep(latest, current)
+      let current = corrida
+      if (!current.iniciadaEn) {
+        current = await ensureSalidas(current)
+        if (cancelRun.current) return
+        current = { ...current, iniciadaEn: new Date().toISOString() }
+        updateCorridas((prev) => prev.map((c) => (c.id === corridaId ? current : c)))
+      }
+      while (current.etapaActual < TOTAL_ETAPAS && !cancelRun.current) {
+        const next = await runEtapa(corridaId, current.etapaActual + 1)
+        if (!next) break
+        current = next
       }
     } finally {
       setBusy(false)
+      setProcessingItemId(null)
+      setComputingSalidas(false)
     }
   }
 
-  function handleReset() {
-    if (!selectedId) return
+  function handleReiniciar(corridaId: string) {
     cancelRun.current = true
     setBusy(false)
-    setProcessingId(null)
-    setProcessingText('')
-    updateProgress(selectedId, initialProgress())
-  }
-
-  function handleSelect(id: string) {
-    if (!id) return
-    cancelRun.current = true
-    setBusy(false)
-    setProcessingId(null)
-    setProcessingText('')
-    setSelectedId(id)
-    setProgressById((prev) =>
-      prev[id] ? prev : { ...prev, [id]: initialProgress() },
+    setProcessingItemId(null)
+    setComputingSalidas(false)
+    setStageBanner(null)
+    updateCorridas((prev) =>
+      prev.map((c) => {
+        if (c.id !== corridaId) return c
+        return {
+          ...c,
+          etapaActual: 0,
+          iniciadaEn: undefined,
+          finalizadaEn: undefined,
+          decisiones: {},
+          items: c.items.map((it) => ({
+            ...it,
+            etapaAlcanzada: 0,
+            salida: it.salida,
+          })),
+        }
+      }),
     )
   }
 
-  function handleAdd(newItems: ItemCola[]) {
-    setItems((prev) => {
-      const ids = new Set(prev.map((p) => p.entrada.id))
-      const unique = newItems.filter((n) => !ids.has(n.entrada.id))
-      const next = [...prev, ...unique]
-      persistExtras(next)
-      return next
-    })
-    setProgressById((prev) => {
-      const copy = { ...prev }
-      for (const n of newItems) {
-        if (!copy[n.entrada.id]) copy[n.entrada.id] = initialProgress()
-      }
-      return copy
-    })
-    if (newItems[0]) setSelectedId(newItems[0].entrada.id)
-  }
-
-  function handleRemove(id: string) {
-    setItems((prev) => {
-      const next = prev.filter((i) => i.entrada.id !== id)
-      persistExtras(next)
-      return next
-    })
-    if (selectedId === id) setSelectedId(null)
-    setProgressById((prev) => {
-      const copy = { ...prev }
-      delete copy[id]
-      return copy
-    })
-  }
-
-  function handleResetDefaults() {
-    clearAgregados()
-    setPersistAviso(null)
-    setSelectedId(null)
-    setItems((prev) => {
-      const defaults = prev.filter((i) => i.fuente === 'por_defecto')
-      setProgressById((pprev) => {
-        const next: Record<string, EntryProgress> = {}
-        for (const d of defaults) {
-          next[d.entrada.id] = pprev[d.entrada.id] ?? initialProgress()
+  function handleSaveDecision(corridaId: string, d: DecisionHumana) {
+    updateCorridas((prev) =>
+      prev.map((c) => {
+        if (c.id !== corridaId) return c
+        return {
+          ...c,
+          decisiones: { ...(c.decisiones ?? {}), [d.contributionId]: d },
         }
-        return next
-      })
-      return defaults
-    })
+      }),
+    )
   }
-
-  const hasExtras = items.some((i) => i.fuente !== 'por_defecto')
-  const existingIds = useMemo(() => new Set(items.map((i) => i.entrada.id)), [items])
 
   if (loading) {
     return (
-      <div className="app-shell">
-        <Header items={[]} themePref={themePref} onThemeChange={setThemePref} />
+      <div className="app-shell app-shell-wide">
+        <Header themePref={themePref} onThemeChange={setThemePref} />
         <p className="loading">Cargando datos…</p>
       </div>
     )
@@ -332,95 +307,170 @@ export default function App() {
 
   if (loadError) {
     return (
-      <div className="app-shell">
-        <Header items={[]} themePref={themePref} onThemeChange={setThemePref} />
+      <div className="app-shell app-shell-wide">
+        <Header themePref={themePref} onThemeChange={setThemePref} />
         <p className="error-state">No se pudo cargar datos.json: {loadError}</p>
       </div>
     )
   }
 
-  const primaryLabel = shouldJumpToAgg
-    ? 'Ir a la agregación'
-    : upcoming
-      ? `Ejecutar paso ${upcoming.displayNum}: ${upcoming.name}`
-      : 'Proceso completado'
+  const showTourPill =
+    tourPaused &&
+    (view.name === 'corrida' || view.name === 'detalle') &&
+    view.corridaId === DEMO_CORRIDA_ID
 
   return (
-    <div className="app-shell">
-      <Header items={items} themePref={themePref} onThemeChange={setThemePref} />
+    <div
+      className={`app-shell${view.name === 'inicio' || view.name === 'corrida' || view.name === 'recorrido' ? ' app-shell-wide' : ''}${view.name === 'recorrido' && !tourPaused ? ' app-shell-tour' : ''}`}
+    >
+      {!(view.name === 'recorrido' && !tourPaused) && (
+        <Header
+          themePref={themePref}
+          onThemeChange={setThemePref}
+          modoEjecucion={headerModo}
+          modelVersion={headerModel}
+          contextoBadge={
+            view.name === 'inicio'
+              ? `${corridas.length} corrida${corridas.length === 1 ? '' : 's'}`
+              : currentCorrida?.nombre
+          }
+          onBrandClick={() => {
+            cancelRun.current = true
+            setTourPaused(false)
+            setView({ name: 'inicio' })
+          }}
+        />
+      )}
       {persistAviso && (
         <p className="persist-banner" role="status">
           {persistAviso}
         </p>
       )}
-      <div className="app-body">
-        <ReviewQueue
-          items={items}
-          selectedId={selectedId}
-          progressById={progressById}
-          onSelect={handleSelect}
-          onAddClick={() => setModalOpen(true)}
-          onRemove={handleRemove}
-          onResetDefaults={handleResetDefaults}
-          hasExtras={hasExtras}
+
+      {view.name === 'inicio' && (
+        <InicioView
+          corridas={corridas}
+          onAbrir={(id) => {
+            setStageBanner(null)
+            setView({ name: 'corrida', corridaId: id })
+          }}
+          onNueva={() => setModalOpen(true)}
+          onRecorrido={() => {
+            setTourPaused(false)
+            setView({ name: 'recorrido' })
+          }}
+          onEliminar={(id) => {
+            if (id === DEMO_CORRIDA_ID) return
+            updateCorridas((prev) => prev.filter((c) => c.id !== id))
+          }}
+          onRestablecerDemo={() => {
+            updateCorridas((prev) =>
+              prev.map((c) => {
+                if (c.id !== DEMO_CORRIDA_ID) return c
+                const p = resetDemoProgress()
+                return {
+                  ...c,
+                  etapaActual: p.etapaActual,
+                  iniciadaEn: undefined,
+                  finalizadaEn: undefined,
+                  decisiones: {},
+                  items: c.items.map((it) => ({ ...it, etapaAlcanzada: 0 })),
+                }
+              }),
+            )
+            setStageBanner(null)
+          }}
         />
-        <main className="main-panel">
-          {selected ? (
-            <>
-              <CaseStickyBar
-                item={selected}
-                progress={progress}
-                busy={busy}
-                primaryLabel={primaryLabel}
-                canExecute={!!upcoming}
-                onExecuteNext={() => void handleExecuteNext()}
-                onExecuteAll={() => void handleExecuteAll()}
-                onReset={handleReset}
-              />
+      )}
 
-              {hasReachedAgregacion(progress) && selected.salida && (
-                <ResultCard salida={selected.salida} />
-              )}
+      {view.name === 'corrida' && currentCorrida && (
+        <CorridaView
+          corrida={currentCorrida}
+          busy={busy}
+          processingItemId={processingItemId}
+          stageBanner={
+            stageBanner ??
+            (currentCorrida.etapaActual > 0
+              ? resumenTrasEtapa(
+                  currentCorrida.etapaActual,
+                  currentCorrida.items.map((i) => i.salida),
+                )
+              : null)
+          }
+          computingSalidas={computingSalidas}
+          onBack={() => {
+            cancelRun.current = true
+            setView({ name: 'inicio' })
+          }}
+          onPrimary={() => void handlePrimary(currentCorrida.id)}
+          onEjecutarTodas={() => void handleEjecutarTodas(currentCorrida.id)}
+          onReiniciar={() => handleReiniciar(currentCorrida.id)}
+          onOpenPr={(itemId) =>
+            setView({ name: 'detalle', corridaId: currentCorrida.id, itemId })
+          }
+        />
+      )}
 
-              <StepPipeline
-                item={selected}
-                revealed={progress.revealed}
-                processingId={processingId}
-                processingText={processingText}
-                lastPanelRef={lastPanelRef}
-              />
+      {view.name === 'detalle' && currentCorrida && (
+        <DetallePRView
+          corrida={currentCorrida}
+          itemId={view.itemId}
+          onBack={() => setView({ name: 'corrida', corridaId: currentCorrida.id })}
+          onBackInicio={() => setView({ name: 'inicio' })}
+          onSaveDecision={(d) => handleSaveDecision(currentCorrida.id, d)}
+        />
+      )}
 
-              <MobileActionBar
-                primaryLabel={primaryLabel}
-                busy={busy}
-                canExecute={!!upcoming}
-                onExecuteNext={() => void handleExecuteNext()}
-                onReset={handleReset}
-              />
-            </>
-          ) : (
-            <div className="empty-state">
-              <p className="empty-state-title">Ninguna contribución seleccionada</p>
-              <p className="empty-state-hint">
-                Elige una contribución y ejecuta el proceso paso a paso, o agrega la tuya.
-              </p>
-              <button
-                type="button"
-                className="btn btn-primary"
-                onClick={() => setModalOpen(true)}
-              >
-                Agregar contribuciones
-              </button>
-            </div>
-          )}
-        </main>
-      </div>
-      <Footer />
-      <AddContributionsModal
+      {view.name === 'recorrido' && !tourPaused && (
+        <RecorridoGuiado
+          demoCorrida={demoCorrida}
+          busy={busy}
+          processingItemId={processingItemId}
+          onSalir={() => setView({ name: 'inicio' })}
+          onAbrirDemo={() => {
+            setTourPaused(true)
+            setStageBanner(null)
+            setView({ name: 'corrida', corridaId: DEMO_CORRIDA_ID })
+          }}
+          onAbrirPr={(itemId) => {
+            setTourPaused(true)
+            setView({ name: 'detalle', corridaId: DEMO_CORRIDA_ID, itemId })
+          }}
+          onIniciarOAvanzarDemo={() => {
+            if (!demoCorrida) return
+            void handlePrimary(DEMO_CORRIDA_ID)
+          }}
+        />
+      )}
+
+      {showTourPill && (
+        <RecorridoGuiado
+          demoCorrida={demoCorrida}
+          busy={busy}
+          processingItemId={processingItemId}
+          tourPaused
+          onSalir={() => setView({ name: 'inicio' })}
+          onAbrirDemo={() => undefined}
+          onAbrirPr={() => undefined}
+          onIniciarOAvanzarDemo={() => undefined}
+          onVolverAlRecorrido={() => {
+            setTourPaused(false)
+            setView({ name: 'recorrido' })
+          }}
+        />
+      )}
+
+      {!(view.name === 'recorrido' && !tourPaused) && <Footer />}
+
+      <NuevaCorridaModal
         open={modalOpen}
-        existingIds={existingIds}
         onClose={() => setModalOpen(false)}
-        onAdd={handleAdd}
+        onCreated={(corrida) => {
+          updateCorridas((prev) => [...prev, corrida])
+          setModalOpen(false)
+          setStageBanner(null)
+          setView({ name: 'corrida', corridaId: corrida.id })
+        }}
       />
     </div>
   )

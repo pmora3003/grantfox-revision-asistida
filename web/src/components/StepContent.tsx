@@ -140,6 +140,10 @@ type PipelineProps = {
   processingId: ManualStepId | null
   processingText: string
   lastPanelRef: RefObject<HTMLElement | null>
+  /** Si se indica, la decisión humana se guarda en la corrida (no en la clave global). */
+  corridaId?: string
+  savedDecision?: DecisionHumana | null
+  onSaveDecision?: (d: DecisionHumana) => void
 }
 
 export function StepPipeline({
@@ -148,6 +152,9 @@ export function StepPipeline({
   processingId,
   processingText,
   lastPanelRef,
+  corridaId,
+  savedDecision,
+  onSaveDecision,
 }: PipelineProps) {
   const omitCode = item.salida?.admissibility.stoppedAt ?? 'CA'
   const lastDoneIdx = (() => {
@@ -189,6 +196,9 @@ export function StepPipeline({
             <StepPanelBody
               caso={{ entrada: item.entrada, salida: item.salida }}
               stepId={r.id}
+              corridaId={corridaId}
+              savedDecision={savedDecision}
+              onSaveDecision={onSaveDecision}
             />
           ) : (
             <p className="muted">Pendiente de calcular el análisis.</p>
@@ -252,7 +262,19 @@ function TimelineStep({
   )
 }
 
-function StepPanelBody({ caso, stepId }: { caso: CasoRevision; stepId: ManualStepId }) {
+function StepPanelBody({
+  caso,
+  stepId,
+  corridaId,
+  savedDecision,
+  onSaveDecision,
+}: {
+  caso: CasoRevision
+  stepId: ManualStepId
+  corridaId?: string
+  savedDecision?: DecisionHumana | null
+  onSaveDecision?: (d: DecisionHumana) => void
+}) {
   const def = stepDef(stepId)
   if (def.kind === 'entrada') return <EntradaPanel entrada={caso.entrada} salida={caso.salida} />
   if (def.kind === 'admisibilidad') return <AdmisibilidadPanel caso={caso} />
@@ -261,7 +283,15 @@ function StepPanelBody({ caso, stepId }: { caso: CasoRevision; stepId: ManualSte
     return <DimensionPanel caso={caso} dimension={def.dimension} />
   if (def.kind === 'agregacion') return <AgregacionPanel caso={caso} />
   if (def.kind === 'registro') return <RegistroPanel caso={caso} />
-  return <HumanReviewPanel key={caso.entrada.id} caso={caso} />
+  return (
+    <HumanReviewPanel
+      key={`${corridaId ?? 'global'}-${caso.entrada.id}`}
+      caso={caso}
+      corridaId={corridaId}
+      savedDecision={savedDecision}
+      onSaveDecision={onSaveDecision}
+    />
+  )
 }
 
 function EntradaPanel({ entrada, salida }: { entrada: Entrada; salida: Salida | null }) {
@@ -668,7 +698,17 @@ function RegistroPanel({ caso }: { caso: CasoRevision }) {
   )
 }
 
-function HumanReviewPanel({ caso }: { caso: CasoRevision }) {
+function HumanReviewPanel({
+  caso,
+  corridaId,
+  savedDecision,
+  onSaveDecision,
+}: {
+  caso: CasoRevision
+  corridaId?: string
+  savedDecision?: DecisionHumana | null
+  onSaveDecision?: (d: DecisionHumana) => void
+}) {
   const { entrada, salida } = caso
   const requested = entrada.requested_amount ?? salida.reward.requestedAmount
   const [reviewerCode, setReviewerCode] = useState('REV-01')
@@ -678,6 +718,8 @@ function HumanReviewPanel({ caso }: { caso: CasoRevision }) {
   const [approvedAmount, setApprovedAmount] = useState(String(requested))
   const [justification, setJustification] = useState('')
   const [saved, setSaved] = useState<DecisionHumana | null>(() => {
+    if (savedDecision) return savedDecision
+    if (onSaveDecision) return null
     return loadDecisions().find((d) => d.contributionId === entrada.id) ?? null
   })
 
@@ -685,6 +727,7 @@ function HumanReviewPanel({ caso }: { caso: CasoRevision }) {
     const amount = Number.parseInt(approvedAmount, 10) || 0
     const record: DecisionHumana = {
       contributionId: entrada.id,
+      corridaId,
       reviewerCode: reviewerCode.trim(),
       finalDecision,
       approvedAmount: amount,
@@ -695,7 +738,11 @@ function HumanReviewPanel({ caso }: { caso: CasoRevision }) {
       savedAt: new Date().toISOString(),
     }
     try {
-      saveDecision(record)
+      if (onSaveDecision) {
+        onSaveDecision(record)
+      } else {
+        saveDecision(record)
+      }
       setSaved(record)
     } catch {
       alert('No se pudo guardar en localStorage.')
@@ -703,12 +750,14 @@ function HumanReviewPanel({ caso }: { caso: CasoRevision }) {
   }
 
   function downloadAll() {
-    const data = loadDecisions()
+    const data = onSaveDecision && saved ? [saved] : loadDecisions()
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
-    a.download = 'decisiones-revision-demo.json'
+    a.download = corridaId
+      ? `decisiones-${corridaId}.json`
+      : 'decisiones-revision-demo.json'
     a.click()
     URL.revokeObjectURL(url)
   }

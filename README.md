@@ -61,7 +61,13 @@ Métricas contra etiquetado humano (solo en local, con el golden set):
 python evaluar.py
 ```
 
-El golden set no se publica: son decisiones internas. Lo uso solo en local con `evaluar.py`.
+Agregados publicables para la demo (sin ids ni casos individuales):
+
+```bash
+python evaluar.py --carpeta runs-golden --publicar
+```
+
+Eso escribe `web/public/metricas.json`. El golden set no se publica: son decisiones internas. Lo uso solo en local con `evaluar.py`. Si corro revisiones sobre `data/golden-set.jsonl`, el export a `web/public/datos.json` se omite con advertencia (o uso `--no-exportar` para silenciar la intencion).
 
 ## Demo web
 
@@ -79,7 +85,13 @@ Eso escribe `data/casos-demo.jsonl` con ids `PR-01` a `PR-12` y muestra una tabl
 revisar --casos data/casos-demo.jsonl --todos --modo simulado
 ```
 
-Eso vuelve a correr el analisis y escribe `web/public/datos.json`. Tambien sirve solo exportar desde `runs/`:
+Eso vuelve a correr el analisis y escribe `web/public/datos.json`. Sobre el golden set local uso `--no-exportar` para no tocar la demo:
+
+```bash
+revisar --casos data/golden-set.jsonl --todos --modo simulado --no-exportar --salida runs-golden
+```
+
+Tambien sirve solo exportar desde `runs/`:
 
 ```bash
 revisar --exportar-web --casos data/casos-demo.jsonl

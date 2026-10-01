@@ -72,6 +72,11 @@ def main(argv: list[str] | None = None) -> None:
         help="Exportar web/public/datos.json desde runs (requiere --casos)",
     )
     parser.add_argument(
+        "--no-exportar",
+        action="store_true",
+        help="No escribir web/public/datos.json tras revisar (p. ej. golden set local)",
+    )
+    parser.add_argument(
         "--decidir",
         action="store_true",
         help="Registrar decision humana sobre una recomendacion previa (RF16)",
@@ -162,13 +167,18 @@ def main(argv: list[str] | None = None) -> None:
             cid = str(salida.get("contributionId") or "")
             print(f"{_id_corto(cid)}\t{rec}\t{nivel}\t{banda}\t{dur}ms")
 
-    if args.exportar_web or (not solo_exportar and casos_dado):
+    debe_exportar = (
+        not args.no_exportar
+        and (args.exportar_web or (not solo_exportar and casos_dado))
+    )
+    if debe_exportar:
         ruta = exportar_web(carpeta_runs=args.salida, casos_path=args.casos)
-        try:
-            etiqueta = ruta.relative_to(_REPO_ROOT)
-        except ValueError:
-            etiqueta = ruta
-        print(f"Exportado: {etiqueta}")
+        if ruta is not None:
+            try:
+                etiqueta = ruta.relative_to(_REPO_ROOT)
+            except ValueError:
+                etiqueta = ruta
+            print(f"Exportado: {etiqueta}")
 
 
 if __name__ == "__main__":

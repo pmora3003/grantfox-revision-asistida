@@ -197,6 +197,8 @@ export type DecisionFinal = RecomendacionValor
 
 export interface DecisionHumana {
   contributionId: string
+  /** Corrida a la que pertenece la decisión (si aplica). */
+  corridaId?: string
   reviewerCode: string
   finalDecision: DecisionFinal
   approvedAmount: number
@@ -205,6 +207,39 @@ export interface DecisionHumana {
   recommendation: RecomendacionValor
   matchesRecommendation: boolean
   savedAt: string
+}
+
+/** Origen de una corrida (lote de PR). */
+export type OrigenCorrida = 'por_defecto' | 'enlaces' | 'archivo'
+
+/**
+ * Ítem dentro de una corrida.
+ * `salida` precalculada (demo) o calculada al iniciar (corridas de usuario).
+ */
+export interface ItemCorrida {
+  id: string
+  entrada: Entrada
+  salida?: Salida | null
+  /** Etapa de lote alcanzada por este PR (0 = sin iniciar, 5 = completada). */
+  etapaAlcanzada: number
+}
+
+/**
+ * Corrida (lote) de revisión asistida.
+ * `etapaActual`: 0 = sin iniciar … 5 = completada.
+ */
+export interface Corrida {
+  id: string
+  nombre: string
+  creadaEn: string
+  origen: OrigenCorrida
+  modoEjecucion: ModoEjecucionSalida
+  items: ItemCorrida[]
+  etapaActual: number
+  iniciadaEn?: string
+  finalizadaEn?: string
+  /** Decisiones humanas indexadas por contributionId. */
+  decisiones?: Record<string, DecisionHumana>
 }
 
 export const DIMENSION_ORDER: DimensionNombre[] = [
