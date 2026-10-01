@@ -4,5 +4,7 @@
 __pycache__/
 *.pyc
 runs/
+ui/datos.js
 .pytest_cache/
 *.egg-info/
+.claude/
