@@ -27,6 +27,11 @@ RecomendacionValor = Literal[
 ]
 BandaConfianza = Literal["alto", "medio", "bajo"]
 Supervicion = Literal["confirmacion", "revision_detallada"]
+SupervisionScope = Literal[
+    "confirmacion",
+    "criterios_no_satisfechos",
+    "analisis_completo",
+]
 Severidad = Literal["alta", "media", "baja"]
 ResultadoCA = Literal["cumple", "no_cumple", "no_verificable"]
 OutcomeAdmisibilidad = Literal["admisible", "no_admisible"]
@@ -99,6 +104,7 @@ class Criterio(BaseModel):
     evidence: str
     file: str | None = None
     fragment: str | None = None
+    line: int | None = None
 
 
 class DimensionValoracion(BaseModel):
@@ -133,6 +139,7 @@ class Confidence(BaseModel):
     score: float
     band: BandaConfianza
     supervision: Supervicion
+    supervisionScope: SupervisionScope
     reasons: list[str] = Field(default_factory=list)
 
 
@@ -149,6 +156,8 @@ class Execution(BaseModel):
 
     durationMs: int
     truncatedInput: bool
+    instructionHash: str
+    entradaHash: str
 
 
 class Salida(BaseModel):
@@ -160,6 +169,7 @@ class Salida(BaseModel):
     executedAt: str
     model: ModeloInfo
     instructionVersion: str
+    headSha: str | None = None
     admissibility: Admisibilidad
     fileClassification: FileClassification
     criteria: list[Criterio]

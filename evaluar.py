@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import statistics
+import sys
 from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Any
@@ -400,7 +401,17 @@ def main(argv: list[str] | None = None) -> None:
     )
     args = parser.parse_args(argv)
 
-    metricas = evaluar(Path(args.golden), Path(args.carpeta))
+    golden_path = Path(args.golden)
+    if not golden_path.is_file():
+        print(
+            f"No se encontro el golden set en {golden_path}. "
+            "El archivo data/golden-set.jsonl es local y no se versiona; "
+            "colocarlo en data/ o indicar --golden PATH.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    metricas = evaluar(golden_path, Path(args.carpeta))
     out_dir = _REPO_ROOT / "resultados"
     out_dir.mkdir(parents=True, exist_ok=True)
 

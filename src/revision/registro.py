@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 import time
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -15,6 +17,8 @@ from revision.analizar import (
     analizar_todas,
     cargar_dotenv,
     criterios_insuficientes,
+    diff_esta_capado,
+    instruccion_renderizada,
     version_instruccion,
 )
 from revision.clasificar import clasificar_entrega
@@ -45,6 +49,16 @@ def os_environ_key() -> str | None:
     return os.environ.get("ANTHROPIC_API_KEY")
 
 
+def _hash_sha256_hex(texto: str) -> str:
+    return hashlib.sha256(texto.encode("utf-8")).hexdigest()
+
+
+def _entrada_hash(entrada: dict[str, Any]) -> str:
+    return _hash_sha256_hex(
+        json.dumps(entrada, sort_keys=True, ensure_ascii=False, default=str)
+    )
+
+
 def revisar(
     registro_crudo: dict[str, Any],
     cliente: Any | None = None,
@@ -55,9 +69,16 @@ def revisar(
     cfg_escala = cargar_escala()
     cfg_adm = cargar_admisibilidad()
     instruccion = version_instruccion()
+    instruction_text = instruccion_renderizada(cfg_escala)
+    instruction_hash = _hash_sha256_hex(instruction_text)
 
     entrada = normalizar(registro_crudo)
+    entrada_hash = _entrada_hash(entrada)
     ctx = entrada.get("context") or {}
+    head_sha = ctx.get("headSha")
+    if head_sha is not None:
+        head_sha = str(head_sha)
+
     clasificacion = clasificar_entrega(ctx.get("fileStats") or [])
     admissibility = evaluar_admisibilidad(entrada, clasificacion, cfg_adm)
 
@@ -71,6 +92,7 @@ def revisar(
         "suggestedAmount": None,
         "dependeInformacionExterna": False,
         "motivoDependencia": None,
+        "diffCapado": diff_esta_capado(entrada),
     }
 
     if admissibility.get("outcome") == "no_admisible":
@@ -101,11 +123,14 @@ def revisar(
         "porArchivo": clasificacion.get("porArchivo"),
     }
 
+    truncated_input = bool(ctx.get("truncated")) or bool(meta.get("diffCapado"))
+
     salida_dict: dict[str, Any] = {
         "contributionId": str(entrada.get("id") or registro_crudo.get("id") or ""),
         "executedAt": executed_at,
         "model": {"name": model_name, "version": model_version},
         "instructionVersion": instruccion,
+        "headSha": head_sha,
         "admissibility": {
             "outcome": admissibility["outcome"],
             "stoppedAt": admissibility.get("stoppedAt"),
@@ -123,7 +148,9 @@ def revisar(
         "limits": agregado["limits"],
         "execution": {
             "durationMs": duration_ms,
-            "truncatedInput": bool(ctx.get("truncated")),
+            "truncatedInput": truncated_input,
+            "instructionHash": instruction_hash,
+            "entradaHash": entrada_hash,
         },
     }
 
@@ -135,7 +162,7 @@ def revisar(
 
 
 def guardar(salida: dict[str, Any], carpeta: str | Path = "runs") -> Path:
-    """Escribe runs/<id_seguro>__<timestamp>.json y append a runs/registro.jsonl."""
+    """Escribe runs/<id_seguro>__<timestamp>__<uuid>.json y append a runs/registro.jsonl."""
     root = Path(carpeta)
     if not root.is_absolute():
         root = _REPO_ROOT / root
@@ -146,7 +173,8 @@ def guardar(salida: dict[str, Any], carpeta: str | Path = "runs") -> Path:
     stamp = executed_at.replace(":", "").replace("-", "")
     if not stamp:
         stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    nombre = f"{_id_seguro(contribution_id)}__{stamp}.json"
+    sufijo = uuid.uuid4().hex[:8]
+    nombre = f"{_id_seguro(contribution_id)}__{stamp}__{sufijo}.json"
     ruta = root / nombre
 
     tokens = salida.pop("_tokens", None) or {}

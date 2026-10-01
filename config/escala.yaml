@@ -13,7 +13,10 @@ niveles:
     max: 100
   - nombre: spike
     min: 101
-    max: 150
+    max: null
+
+# Informativo: techo observado en el registro historico (no acota el nivel spike).
+techo_observado: 150
 
 confianza:
   alto: 0.90

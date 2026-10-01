@@ -1,6 +1,6 @@
 # Revisión asistida GrantFox
 
-Soy Pablo. Este repo es mi prototipo de tesis para GrantFox: ayuda a revisar contribuciones técnicas con reglas fijas y un modelo de lenguaje. No decide nada por sí solo y no se conecta a sistemas productivos. Solo lee un golden set local y escribe salidas en JSON.
+Soy Pablo. Este repo es mi prototipo de tesis para GrantFox: ayuda a revisar contribuciones técnicas con reglas fijas y un modelo de lenguaje. No decide nada por sí solo y no se conecta a sistemas productivos.
 
 ## Instalación
 
@@ -18,7 +18,7 @@ ANTHROPIC_API_KEY=...
 
 ## Cómo lo corro
 
-Revisar todo el golden set con el modelo:
+Revisar el golden set local (no publicado) con el modelo:
 
 ```bash
 revisar --todos
@@ -36,44 +36,66 @@ Sin llamadas al modelo (útil para pruebas rápidas):
 revisar --todos --sin-modelo
 ```
 
-Regenerar la UI desde `runs/`:
+Registrar la decisión humana sobre una recomendación previa:
 
 ```bash
-revisar --exportar-ui
+revisar --decidir --id DEMO-01 --decision aprobar --monto 60 \
+  --justificacion "Coincide con la recomendacion" --revisor REV-01
 ```
 
-Métricas contra etiquetado humano:
+Métricas contra etiquetado humano (solo en local, con el golden set):
 
 ```bash
 python evaluar.py
 ```
 
-Ver resultados en el navegador (archivo local, sin servidor):
+El golden set no se publica: son decisiones internas. Lo uso solo en local con `evaluar.py`.
+
+## Demo web
+
+La demo es una app React en `web/`. Los datos son casos sintéticos en `data/casos-prueba.jsonl`, con salidas precargadas por el pipeline en `web/public/datos.json`. Está publicada en GitHub Pages: https://pmora3003.github.io/grantfox-revision-asistida/
+
+Para regenerar los datos de la demo:
 
 ```bash
-open ui/index.html
+revisar --casos data/casos-prueba.jsonl --todos
 ```
 
-Cada corrida de `revisar` termina exportando `ui/datos.js`.
+Eso vuelve a correr el pipeline y escribe `web/public/datos.json`. También sirve solo exportar desde `runs/`:
+
+```bash
+revisar --exportar-web --casos data/casos-prueba.jsonl
+```
+
+Luego hago commit de `web/public/datos.json` si cambió.
+
+Para verla en local:
+
+```bash
+cd web && npm install && npm run dev
+```
 
 ## Pipeline
 
-Leo cada registro del golden set, lo normalizo quitando campos de etiquetado, clasifico archivos, evalúo admisibilidad con YAML versionado, y si pasa llamo al modelo por los 23 criterios. Luego agrego recomendación, confianza y prioridad, guardo en `runs/` y exporto para la UI.
+Leo cada registro, lo normalizo quitando campos de etiquetado, clasifico archivos, evalúo admisibilidad con YAML versionado, y si pasa llamo al modelo por los 23 criterios. Luego agrego recomendación, confianza y prioridad, y guardo en `runs/`.
 
 | Módulo | Rol |
 |--------|-----|
-| `normalizar` | Entrada limpia desde golden set |
+| `normalizar` | Entrada limpia desde el archivo de casos |
 | `clasificar` | Tipos de archivo y volumen |
 | `admisibilidad` | Condiciones CA-001 a CA-005 |
 | `analizar` | Criterios CR con el modelo |
 | `agregar` | Recompensa, recomendación, confianza |
 | `registro` | Orquestación y guardado |
-| `exportar` | `ui/datos.js` para la UI |
+| `exportar` | `web/public/datos.json` para la demo |
+| `decision` | Registro de decisión humana |
 | `cli` | Comando `revisar` |
 
 ## Configuración
 
-`config/escala.yaml` define niveles de recompensa (bajo, medio, alto, spike), umbrales de confianza y el nombre del modelo. `config/admisibilidad.yaml` trae la versión de las condiciones de admisibilidad y sus parámetros (por ejemplo mínimo de archivos en CA-002).
+`config/escala.yaml` define niveles de recompensa (bajo, medio, alto, spike), umbrales de confianza, severidad por criterio y el nombre del modelo. `config/admisibilidad.yaml` trae la versión de las condiciones de admisibilidad y sus parámetros (por ejemplo mínimo de archivos en CA-002).
+
+La severidad por criterio y la fórmula de prioridad son decisiones propias del proyecto (contexto sección 16): no vienen de un marco externo.
 
 ## Resultados
 

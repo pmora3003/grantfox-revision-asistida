@@ -8,7 +8,8 @@ import re
 from pathlib import Path
 from typing import Any
 
-from revision.config import ConfigEscala, cargar_escala
+from revision.config import ConfigEscala, cargar_escala, umbral_spike
+from revision.normalizar import anonimizar_texto
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _RUTA_INSTRUCCION = _REPO_ROOT / "prompts" / "instruccion_v1.md"
@@ -44,12 +45,21 @@ CODIGOS_POR_DIMENSION: dict[str, tuple[str, ...]] = {
 }
 
 NIVELES = ("cumple", "cumple_parcialmente", "no_cumple", "evidencia_insuficiente")
+_NIVELES_CON_FRAGMENTO = frozenset(
+    {"cumple", "cumple_parcialmente", "no_cumple"}
+)
+_CODIGOS_FORZAR_TRUNCADO = frozenset({"CR-013", "CR-019"})
+
+_RE_SECRET_KV = re.compile(
+    r"(?i)\b(password|passwd|secret|token|api_key|apikey|private_key|client_secret)"
+    r"(\s*[:=]\s*)"
+    r"(?P<q>[\"']?)(?P<val>[^\"'\s]+)(?P=q)"
+)
 
 _RE_SECRETOS = [
     re.compile(r"(?i)-----BEGIN[^-]+KEY-----[\s\S]*?-----END[^-]+KEY-----"),
     re.compile(r"(?i)\bsk-[A-Za-z0-9]{20,}\b"),
     re.compile(r"\bAKIA[0-9A-Z]{16}\b"),
-    re.compile(r"(?i)\bpassword\s*=\s*\S+"),
     re.compile(r"\bS[A-Z2-7]{55}\b"),
     re.compile(r"\b[A-Za-z0-9+/]{33,}={0,2}\b"),
     re.compile(r"\b[0-9a-fA-F]{33,}\b"),
@@ -96,19 +106,37 @@ def _formatear_escala(config: ConfigEscala) -> str:
     return "\n".join(lineas)
 
 
-def cargar_instruccion_dimension(
-    dimension: str,
-    config: ConfigEscala | None = None,
-    ruta: Path | None = None,
-) -> str:
-    """Devuelve la parte comun mas la seccion de la dimension, con {escala} resuelto."""
-    cfg = config or cargar_escala()
+def _texto_instruccion_base(ruta: Path | None = None) -> str:
     path = ruta or _RUTA_INSTRUCCION
     texto = path.read_text(encoding="utf-8")
     if texto.startswith("---"):
         fin = texto.find("---", 3)
         if fin != -1:
             texto = texto[fin + 3 :].lstrip("\n")
+    return texto
+
+
+def instruccion_renderizada(
+    config: ConfigEscala | None = None,
+    ruta: Path | None = None,
+) -> str:
+    """Instruccion completa con {escala} y {umbral_spike} resueltos."""
+    cfg = config or cargar_escala()
+    texto = _texto_instruccion_base(ruta)
+    return (
+        texto.replace("{escala}", _formatear_escala(cfg))
+        .replace("{umbral_spike}", str(umbral_spike(cfg)))
+    )
+
+
+def cargar_instruccion_dimension(
+    dimension: str,
+    config: ConfigEscala | None = None,
+    ruta: Path | None = None,
+) -> str:
+    """Devuelve la parte comun mas la seccion de la dimension, con placeholders resueltos."""
+    cfg = config or cargar_escala()
+    texto = _texto_instruccion_base(ruta)
 
     marcador = f"## DIMENSION {dimension}"
     idx = texto.find(marcador)
@@ -121,16 +149,31 @@ def cargar_instruccion_dimension(
     siguiente = re.search(r"\n## DIMENSION ", resto[1:])
     seccion = resto[: siguiente.start() + 1] if siguiente else resto
     prompt = f"{comun}\n\n{seccion.strip()}\n"
-    return prompt.replace("{escala}", _formatear_escala(cfg))
+    return (
+        prompt.replace("{escala}", _formatear_escala(cfg))
+        .replace("{umbral_spike}", str(umbral_spike(cfg)))
+    )
+
+
+def _sub_secreto_kv(match: re.Match[str]) -> str:
+    return (
+        f"{match.group(1)}{match.group(2)}"
+        f"{match.group('q')}[valor omitido]{match.group('q')}"
+    )
 
 
 def redactar_secretos(texto: str | None) -> str | None:
     if texto is None:
         return None
-    resultado = texto
+    resultado = _RE_SECRET_KV.sub(_sub_secreto_kv, texto)
     for patron in _RE_SECRETOS:
         resultado = patron.sub("[valor omitido]", resultado)
     return resultado
+
+
+def sanitizar_texto_modelo(texto: str | None) -> str | None:
+    """Anonimiza correos/billeteras y redacta secretos (RNF-05, RNF-07)."""
+    return redactar_secretos(anonimizar_texto(texto))
 
 
 def _criterio_vacio(codigo: str, dimension: str, evidencia: str) -> dict[str, Any]:
@@ -141,6 +184,7 @@ def _criterio_vacio(codigo: str, dimension: str, evidencia: str) -> dict[str, An
         "evidence": evidencia,
         "file": None,
         "fragment": None,
+        "line": None,
     }
 
 
@@ -152,6 +196,101 @@ def criterios_insuficientes(evidencia: str) -> list[dict[str, Any]]:
     return salida
 
 
+def diff_esta_capado(entrada: dict[str, Any]) -> bool:
+    """True si el diff supera el tope de caracteres aplicado al modelo."""
+    ctx = entrada.get("context") or {}
+    diff = ctx.get("diff") or ""
+    if not isinstance(diff, str):
+        diff = str(diff)
+    return len(diff) > _DIFF_MAX
+
+
+def insumo_truncado(
+    entrada: dict[str, Any],
+    meta: dict[str, Any] | None = None,
+) -> bool:
+    ctx = entrada.get("context") or {}
+    return bool(ctx.get("truncated")) or bool((meta or {}).get("diffCapado"))
+
+
+def _neutralizar_marcadores(texto: str) -> str:
+    """Evita que el texto de terceros cierre o abra el bloque de datos (RNF-06)."""
+    texto = texto.replace("<datos_repositorio", "&lt;datos_repositorio")
+    texto = texto.replace("</datos_repositorio", "&lt;/datos_repositorio")
+    return texto
+
+
+def construir_mensaje_usuario(
+    dimension: str,
+    entrada: dict[str, Any],
+    clasificacion: dict[str, Any],
+    previos: list[dict[str, Any]] | None,
+) -> str:
+    """Arma el mensaje de usuario con el bloque <datos_repositorio> neutralizado."""
+    ctx = entrada.get("context") or {}
+    diff = ctx.get("diff") or ""
+    if not isinstance(diff, str):
+        diff = str(diff)
+    truncado = bool(ctx.get("truncated"))
+    diff_capado = False
+    if len(diff) > _DIFF_MAX:
+        diff = diff[:_DIFF_MAX]
+        diff_capado = True
+        truncado = True
+
+    file_stats = ctx.get("fileStats") or []
+    partes = [
+        f"Dimension a valorar: {dimension}",
+        f"Clasificacion de archivos (byType): {json.dumps(clasificacion.get('byType'), ensure_ascii=False)}",
+        f"Volumen real: {json.dumps(clasificacion.get('realVolume'), ensure_ascii=False)}",
+        f"ciConclusion: {ctx.get('ciConclusion')}",
+        f"reviewCommentCount: {ctx.get('reviewCommentCount')}",
+        f"requested_amount: {entrada.get('requested_amount')}",
+        f"truncated: {truncado}",
+    ]
+    if diff_capado:
+        partes.append(
+            f"Nota: el conjunto de diferencias se corto a {_DIFF_MAX} caracteres; "
+            "tratar como truncado."
+        )
+
+    if dimension == "proporcionalidad" and previos:
+        compactos = [
+            {
+                "code": c.get("code"),
+                "level": c.get("level"),
+                "evidence": (c.get("evidence") or "")[:200],
+            }
+            for c in previos
+        ]
+        partes.append(
+            "Resultados previos (alcance, calidad, seguridad), compactos:\n"
+            + json.dumps(compactos, ensure_ascii=False)
+        )
+
+    title = _neutralizar_marcadores(str(ctx.get("title") or ""))
+    body = _neutralizar_marcadores(str(ctx.get("body") or ""))
+    linked_title = _neutralizar_marcadores(str(ctx.get("linkedIssueTitle") or ""))
+    linked_body = _neutralizar_marcadores(str(ctx.get("linkedIssueBody") or ""))
+    file_stats_txt = _neutralizar_marcadores(
+        json.dumps(file_stats, ensure_ascii=False)
+    )
+    diff_txt = _neutralizar_marcadores(diff)
+
+    datos = (
+        "<datos_repositorio>\n"
+        f"title: {title}\n\n"
+        f"body:\n{body}\n\n"
+        f"linkedIssueTitle: {linked_title}\n\n"
+        f"linkedIssueBody:\n{linked_body}\n\n"
+        f"fileStats:\n{file_stats_txt}\n\n"
+        f"diff:\n{diff_txt}\n"
+        "</datos_repositorio>"
+    )
+    partes.append(datos)
+    return "\n".join(partes)
+
+
 def _esquema_herramienta(dimension: str) -> dict[str, Any]:
     codigos = list(CODIGOS_POR_DIMENSION[dimension])
     props_criterio: dict[str, Any] = {
@@ -160,6 +299,14 @@ def _esquema_herramienta(dimension: str) -> dict[str, Any]:
         "evidence": {"type": "string"},
         "file": {"type": ["string", "null"]},
         "fragment": {"type": ["string", "null"]},
+        "line": {
+            "type": ["integer", "null"],
+            "description": (
+                "Numero de linea dentro del archivo en la version nueva, "
+                "cuando pueda leerse de las cabeceras del hunk del diff "
+                "(por ejemplo @@ -a,b +c,d @@ apunta a la linea c)."
+            ),
+        },
     }
     required_criterio = ["code", "level", "evidence", "file", "fragment"]
 
@@ -210,65 +357,13 @@ def _esquema_herramienta(dimension: str) -> dict[str, Any]:
     }
 
 
-def _construir_mensaje_usuario(
-    dimension: str,
-    entrada: dict[str, Any],
-    clasificacion: dict[str, Any],
-    previos: list[dict[str, Any]] | None,
-) -> str:
-    ctx = entrada.get("context") or {}
-    diff = ctx.get("diff") or ""
-    if not isinstance(diff, str):
-        diff = str(diff)
-    truncado = bool(ctx.get("truncated"))
-    diff_capado = False
-    if len(diff) > _DIFF_MAX:
-        diff = diff[:_DIFF_MAX]
-        diff_capado = True
-        truncado = True
-
-    file_stats = ctx.get("fileStats") or []
-    partes = [
-        f"Dimension a valorar: {dimension}",
-        f"Clasificacion de archivos (byType): {json.dumps(clasificacion.get('byType'), ensure_ascii=False)}",
-        f"Volumen real: {json.dumps(clasificacion.get('realVolume'), ensure_ascii=False)}",
-        f"ciConclusion: {ctx.get('ciConclusion')}",
-        f"reviewCommentCount: {ctx.get('reviewCommentCount')}",
-        f"requested_amount: {entrada.get('requested_amount')}",
-        f"truncated: {truncado}",
-    ]
-    if diff_capado:
-        partes.append(
-            f"Nota: el conjunto de diferencias se corto a {_DIFF_MAX} caracteres; "
-            "tratar como truncado."
-        )
-
-    if dimension == "proporcionalidad" and previos:
-        compactos = [
-            {
-                "code": c.get("code"),
-                "level": c.get("level"),
-                "evidence": (c.get("evidence") or "")[:200],
-            }
-            for c in previos
-        ]
-        partes.append(
-            "Resultados previos (alcance, calidad, seguridad), compactos:\n"
-            + json.dumps(compactos, ensure_ascii=False)
-        )
-
-    datos = (
-        "<datos_repositorio>\n"
-        f"title: {ctx.get('title')}\n\n"
-        f"body:\n{ctx.get('body')}\n\n"
-        f"linkedIssueTitle: {ctx.get('linkedIssueTitle')}\n\n"
-        f"linkedIssueBody:\n{ctx.get('linkedIssueBody')}\n\n"
-        f"fileStats:\n{json.dumps(file_stats, ensure_ascii=False)}\n\n"
-        f"diff:\n{diff}\n"
-        "</datos_repositorio>"
-    )
-    partes.append(datos)
-    return "\n".join(partes)
+def _normalizar_linea(valor: Any) -> int | None:
+    if valor is None or valor == "":
+        return None
+    try:
+        return int(valor)
+    except (TypeError, ValueError):
+        return None
 
 
 def _normalizar_criterios(
@@ -290,9 +385,12 @@ def _normalizar_criterios(
             "code": codigo,
             "dimension": dimension,
             "level": level,
-            "evidence": redactar_secretos(str(item.get("evidence") or "")) or "",
+            "evidence": sanitizar_texto_modelo(str(item.get("evidence") or "")) or "",
             "file": item.get("file"),
-            "fragment": redactar_secretos(fragment if isinstance(fragment, str) else None),
+            "fragment": sanitizar_texto_modelo(
+                fragment if isinstance(fragment, str) else None
+            ),
+            "line": _normalizar_linea(item.get("line")),
         }
 
     salida: list[dict[str, Any]] = []
@@ -310,6 +408,37 @@ def _normalizar_criterios(
     return salida
 
 
+def postvalidar_criterios(
+    criterios: list[dict[str, Any]],
+    entrada: dict[str, Any],
+    meta: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
+    """RF06 / RNF-01: fragmento obligatorio; CR-013/CR-019 si el insumo esta truncado."""
+    truncado = insumo_truncado(entrada, meta)
+    salida: list[dict[str, Any]] = []
+    for original in criterios:
+        c = dict(original)
+        level = c.get("level")
+        fragment = c.get("fragment")
+        fragment_vacio = fragment is None or (
+            isinstance(fragment, str) and not fragment.strip()
+        )
+        if level in _NIVELES_CON_FRAGMENTO and fragment_vacio:
+            c["level"] = "evidencia_insuficiente"
+            ev = c.get("evidence") or ""
+            prefijo = "Sin fragmento citado: "
+            if not str(ev).startswith(prefijo):
+                c["evidence"] = prefijo + str(ev)
+        if truncado and c.get("code") in _CODIGOS_FORZAR_TRUNCADO:
+            c["level"] = "evidencia_insuficiente"
+            ev = c.get("evidence") or ""
+            prefijo = "Insumo truncado: "
+            if not str(ev).startswith(prefijo):
+                c["evidence"] = prefijo + str(ev)
+        salida.append(c)
+    return salida
+
+
 def analizar_dimension(
     cliente: Any,
     dimension: str,
@@ -324,7 +453,7 @@ def analizar_dimension(
 
     cfg = config or cargar_escala()
     system = cargar_instruccion_dimension(dimension, cfg)
-    user = _construir_mensaje_usuario(dimension, entrada, clasificacion, previos)
+    user = construir_mensaje_usuario(dimension, entrada, clasificacion, previos)
 
     modelo = str(cfg.modelo.get("nombre", "claude-sonnet-5-5"))
     temperatura = float(cfg.modelo.get("temperatura", 0))
@@ -361,10 +490,15 @@ def analizar_dimension(
             break
 
     criterios = _normalizar_criterios(dimension, list(args.get("criterios") or []))
+    signals = [
+        sanitizar_texto_modelo(str(s)) or ""
+        for s in list(args.get("automationSignals") or [])
+    ]
     meta: dict[str, Any] = {
-        "automationSignals": list(args.get("automationSignals") or []),
+        "automationSignals": signals,
         "tareaCorresponde": args.get("tareaCorresponde"),
         "modelId": model_id,
+        "diffCapado": diff_esta_capado(entrada),
     }
     if dimension == "proporcionalidad":
         meta["suggestedLevel"] = args.get("suggestedLevel")
@@ -372,8 +506,13 @@ def analizar_dimension(
         meta["dependeInformacionExterna"] = bool(
             args.get("dependeInformacionExterna", False)
         )
-        meta["motivoDependencia"] = args.get("motivoDependencia")
+        motivo = args.get("motivoDependencia")
+        if isinstance(motivo, str):
+            meta["motivoDependencia"] = sanitizar_texto_modelo(motivo)
+        else:
+            meta["motivoDependencia"] = motivo
 
+    criterios = postvalidar_criterios(criterios, entrada, meta)
     return criterios, uso, meta
 
 
@@ -387,6 +526,7 @@ def analizar_todas(
     cfg = config or cargar_escala()
     todos: list[dict[str, Any]] = []
     tokens = {"input_tokens": 0, "output_tokens": 0}
+    diff_capado = diff_esta_capado(entrada)
     meta: dict[str, Any] = {
         "automationSignals": [],
         "tareaCorresponde": None,
@@ -395,6 +535,7 @@ def analizar_todas(
         "dependeInformacionExterna": False,
         "motivoDependencia": None,
         "modelId": str(cfg.modelo.get("nombre", "claude-sonnet-5-5")),
+        "diffCapado": diff_capado,
     }
 
     for dimension in DIMENSIONES:
@@ -419,4 +560,6 @@ def analizar_todas(
             )
             meta["motivoDependencia"] = m.get("motivoDependencia")
 
+    # Reaplica postvalidacion global (p. ej. truncado afecta CR-013/CR-019 de cualquier paso)
+    todos = postvalidar_criterios(todos, entrada, meta)
     return todos, tokens, meta

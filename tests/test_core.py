@@ -4,10 +4,18 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from revision.admisibilidad import evaluar_admisibilidad
 from revision.clasificar import clasificar_archivo, clasificar_entrega
-from revision.config import CAMPOS_ETIQUETADO, cargar_admisibilidad, cargar_escala, nivel_para_monto
-from revision.normalizar import cargar_golden, normalizar
+from revision.config import (
+    CAMPOS_ETIQUETADO,
+    cargar_admisibilidad,
+    cargar_escala,
+    nivel_para_monto,
+    umbral_spike,
+)
+from revision.normalizar import anonimizar_texto, cargar_golden, normalizar
 
 _CAMPOS_CONTEXTO_ESPERADOS = {
     "prUrl",
@@ -42,7 +50,13 @@ def _claves_recursivas(obj: object, prefijo: str = "") -> set[str]:
     return claves
 
 
+def _requiere_golden() -> None:
+    if not _GOLDEN.is_file():
+        pytest.skip(f"golden set ausente: {_GOLDEN}")
+
+
 def test_normalizar_no_filtra_etiquetado_en_golden():
+    _requiere_golden()
     registros = cargar_golden(_GOLDEN)
     assert len(registros) == 66
     for registro in registros:
@@ -53,7 +67,58 @@ def test_normalizar_no_filtra_etiquetado_en_golden():
         assert set(salida["context"].keys()) == _CAMPOS_CONTEXTO_ESPERADOS
 
 
+def test_normalizar_no_filtra_esperado_sintetico():
+    registro = {
+        "id": "sintetico:0",
+        "esperado": {"recommendation": "aprobar"},
+        "expected": {"recommendation": "APPROVE"},
+        "note": "no debe filtrarse",
+        "context": {
+            "title": "PR",
+            "body": "fixes #1",
+            "merged": True,
+            "state": "closed",
+            "diff": "diff --git a/a.rs b/a.rs\n",
+            "fileStats": [],
+        },
+        "requested_amount": 40,
+    }
+    salida = normalizar(registro)
+    claves = _claves_recursivas(salida)
+    assert "esperado" in CAMPOS_ETIQUETADO
+    assert CAMPOS_ETIQUETADO.isdisjoint(claves)
+    assert "esperado" not in salida
+    assert "expected" not in salida
+    assert "note" not in salida
+
+
+def test_anonimizar_tambien_en_diff():
+    stellar = "G" + ("A" * 55)
+    eth = "0x" + ("ab" * 20)
+    registro = {
+        "id": "sintetico:1",
+        "context": {
+            "title": f"contact me@example.com {stellar}",
+            "body": f"wallet {eth}",
+            "diff": f"+ email me@example.com\n+ stellar {stellar}\n+ eth {eth}\n",
+            "merged": True,
+            "state": "closed",
+            "fileStats": [],
+        },
+        "requested_amount": 30,
+    }
+    salida = normalizar(registro)
+    for campo in ("title", "body", "diff"):
+        texto = salida["context"][campo]
+        assert "me@example.com" not in texto
+        assert stellar not in texto
+        assert eth not in texto
+        assert "[redactado]" in texto
+    assert anonimizar_texto(None) is None
+
+
 def test_admisibilidad_determinista_golden():
+    _requiere_golden()
     config = cargar_admisibilidad()
     registros = cargar_golden(_GOLDEN)
     conteo_fallas: dict[str, int] = {
@@ -127,6 +192,23 @@ def test_admisibilidad_ca001_cerrada_sin_fusionar():
     assert resultado["outcome"] == "no_admisible"
 
 
+def test_admisibilidad_ca001_merged_requiere_estado():
+    config = cargar_admisibilidad()
+    entrada = {
+        "id": "prueba:1b",
+        "context": {
+            "merged": True,
+            "state": "open",
+            "body": "fixes #2",
+            "fileStats": [{"path": "src/a.rs", "additions": 10, "deletions": 0}] * 6,
+        },
+        "requested_amount": 50,
+    }
+    clasificacion = clasificar_entrega(entrada["context"]["fileStats"])
+    resultado = evaluar_admisibilidad(entrada, clasificacion, config)
+    assert resultado["stoppedAt"] == "CA-001"
+
+
 def test_admisibilidad_ca003_solo_docs_y_config():
     config = cargar_admisibilidad()
     paths = [
@@ -155,8 +237,89 @@ def test_admisibilidad_ca003_solo_docs_y_config():
     assert clasificacion["byType"]["pruebas"] == 0
 
 
+def test_admisibilidad_ca003_solo_pruebas_no_cuenta():
+    config = cargar_admisibilidad()
+    paths = [{"path": f"tests/t{i}_test.rs", "additions": 5, "deletions": 0} for i in range(6)]
+    entrada = {
+        "id": "prueba:2b",
+        "context": {
+            "merged": True,
+            "state": "merged",
+            "body": "closes #3",
+            "fileStats": paths,
+        },
+        "requested_amount": 40,
+    }
+    clasificacion = clasificar_entrega(paths)
+    resultado = evaluar_admisibilidad(entrada, clasificacion, config)
+    assert clasificacion["byType"]["codigo"] == 0
+    assert clasificacion["byType"]["pruebas"] >= 1
+    assert resultado["stoppedAt"] == "CA-003"
+
+
+def test_admisibilidad_ca004_sin_fallback_linked_title():
+    config = cargar_admisibilidad()
+    paths = [{"path": f"src/f{i}.rs", "additions": 1, "deletions": 0} for i in range(6)]
+    entrada = {
+        "id": "prueba:3",
+        "context": {
+            "merged": True,
+            "state": "closed",
+            "body": "Actualiza el contrato sin mencionar tarea",
+            "linkedIssueTitle": "Tarea real en plataforma",
+            "fileStats": paths,
+        },
+        "requested_amount": 50,
+    }
+    clasificacion = clasificar_entrega(paths)
+    resultado = evaluar_admisibilidad(entrada, clasificacion, config)
+    assert resultado["stoppedAt"] == "CA-004"
+
+
+def test_admisibilidad_ca004_hash_suelto_con_prefijo():
+    config = cargar_admisibilidad()
+    paths = [{"path": f"src/f{i}.rs", "additions": 1, "deletions": 0} for i in range(6)]
+    for body in ("related #12", "issue #12", "refs #12", "org/repo#12", "Fixes #12"):
+        entrada = {
+            "id": "prueba:4",
+            "context": {
+                "merged": True,
+                "state": "closed",
+                "body": body,
+                "fileStats": paths,
+            },
+            "requested_amount": 50,
+        }
+        clasificacion = clasificar_entrega(paths)
+        resultado = evaluar_admisibilidad(entrada, clasificacion, config)
+        assert resultado["outcome"] == "admisible", body
+
+
+def test_admisibilidad_ca004_hash_suelto_sin_prefijo():
+    config = cargar_admisibilidad()
+    paths = [{"path": f"src/f{i}.rs", "additions": 1, "deletions": 0} for i in range(6)]
+    entrada = {
+        "id": "prueba:5",
+        "context": {
+            "merged": True,
+            "state": "closed",
+            "body": "Mejora el modulo #12 sin palabra de enlace",
+            "fileStats": paths,
+        },
+        "requested_amount": 50,
+    }
+    clasificacion = clasificar_entrega(paths)
+    resultado = evaluar_admisibilidad(entrada, clasificacion, config)
+    assert resultado["stoppedAt"] == "CA-004"
+
+
 def test_config_nivel_para_monto():
     escala = cargar_escala()
     assert nivel_para_monto(30, escala) == "bajo"
     assert nivel_para_monto(101, escala) == "spike"
-    assert nivel_para_monto(10, escala) is None
+    assert nivel_para_monto(200, escala) == "spike"
+    assert nivel_para_monto(10, escala) == "bajo"
+    assert umbral_spike(escala) == 100
+    assert escala.techo_observado == 150
+    spike = next(n for n in escala.niveles if n.nombre == "spike")
+    assert spike.maximo is None

@@ -1,4 +1,4 @@
-"""Exporta la ultima revision por contribucion para la UI estatica."""
+"""Exporta la ultima revision por contribucion para la demo web."""
 
 from __future__ import annotations
 
@@ -6,6 +6,8 @@ import json
 from collections import defaultdict
 from pathlib import Path
 from typing import Any
+
+from revision.normalizar import cargar_golden, normalizar
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 
@@ -68,25 +70,39 @@ def _ultimas_por_contribucion(
     return ultimas
 
 
-def exportar(
+def exportar_web(
     carpeta_runs: str | Path = "runs",
-    destino: str | Path = "ui/datos.js",
+    casos_path: str | Path | None = None,
+    destino: str | Path = "web/public/datos.json",
 ) -> Path:
-    """Escribe window.REVISIONES con la ultima corrida por contributionId."""
+    """Escribe un JSON con {entrada, salida} por caso, ordenado por id."""
+    if casos_path is None:
+        raise ValueError("casos_path es obligatorio para exportar_web")
+
     carpeta = _carpeta_abs(carpeta_runs)
     dest = Path(destino)
     if not dest.is_absolute():
         dest = _REPO_ROOT / dest
     dest.parent.mkdir(parents=True, exist_ok=True)
 
+    registros = cargar_golden(casos_path)
     runs = _cargar_registro(carpeta)
     ultimas = _ultimas_por_contribucion(runs)
-    revisiones: list[dict[str, Any]] = []
-    for cid in sorted(ultimas.keys()):
-        salida = _cargar_salida(ultimas[cid], carpeta)
-        if salida is not None:
-            revisiones.append(salida)
 
-    payload = json.dumps(revisiones, ensure_ascii=False, separators=(",", ":"))
-    dest.write_text(f"window.REVISIONES = {payload};\n", encoding="utf-8")
+    payload: list[dict[str, Any]] = []
+    for registro in sorted(registros, key=lambda r: str(r.get("id") or "")):
+        cid = str(registro.get("id") or "")
+        entrada = normalizar(registro)
+        run = ultimas.get(cid)
+        if run is None:
+            continue
+        salida = _cargar_salida(run, carpeta)
+        if salida is None:
+            continue
+        payload.append({"entrada": entrada, "salida": salida})
+
+    dest.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
     return dest
