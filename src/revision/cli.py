@@ -10,7 +10,7 @@ from pathlib import Path
 from revision.decision import registrar_decision
 from revision.exportar import exportar_web
 from revision.normalizar import cargar_golden
-from revision.registro import guardar, revisar
+from revision.registro import guardar, resolver_modo, revisar
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _CASOS_DEFAULT = str(_REPO_ROOT / "data" / "golden-set.jsonl")
@@ -53,9 +53,13 @@ def main(argv: list[str] | None = None) -> None:
         help="Procesar todos los registros del archivo de casos",
     )
     parser.add_argument(
-        "--sin-modelo",
-        action="store_true",
-        help="Omitir llamadas al modelo (criterios en evidencia insuficiente)",
+        "--modo",
+        choices=["auto", "real", "simulado"],
+        default="auto",
+        help=(
+            "Modo de analisis: auto (real si hay ANTHROPIC_API_KEY, si no simulado), "
+            "real (requiere clave) o simulado (heuristicas sin modelo)"
+        ),
     )
     parser.add_argument(
         "--salida",
@@ -125,6 +129,13 @@ def main(argv: list[str] | None = None) -> None:
 
     if not solo_exportar:
         try:
+            modo_efectivo = resolver_modo(args.modo)
+        except RuntimeError as exc:
+            print(str(exc), file=sys.stderr)
+            sys.exit(1)
+        print(f"Modo de ejecucion: {modo_efectivo} (pedido: {args.modo})")
+
+        try:
             registros = cargar_golden(args.casos)
         except FileNotFoundError as exc:
             print(str(exc), file=sys.stderr)
@@ -142,7 +153,7 @@ def main(argv: list[str] | None = None) -> None:
             seleccion = registros
 
         for registro in seleccion:
-            salida = revisar(registro, sin_modelo=args.sin_modelo)
+            salida = revisar(registro, modo=args.modo)
             guardar(salida, carpeta=args.salida)
             rec = (salida.get("recommendation") or {}).get("value")
             nivel = (salida.get("reward") or {}).get("suggestedLevel")

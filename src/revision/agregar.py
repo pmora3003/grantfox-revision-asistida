@@ -148,6 +148,11 @@ def agregar_confianza(
         motivo = meta.get("motivoDependencia") or "dependencia de informacion externa"
         reasons.append(str(sanitizar_texto_modelo(str(motivo)) or motivo))
 
+    if meta.get("modoEjecucion") == "simulado":
+        pen = float(penalizaciones.get("simulado", 0.15))
+        score -= pen
+        reasons.append("Ejecucion simulada")
+
     score = max(0.0, min(1.0, score))
     umbral_alto = float(conf.get("alto", 0.90))
     umbral_medio = float(conf.get("medio", 0.70))
@@ -339,6 +344,11 @@ def agregar_limits(
         stopped = admissibility.get("stoppedAt") or "condicion de admisibilidad"
         limits.append(
             f"Analisis detenido en {stopped}; los 23 criterios quedan en evidencia insuficiente"
+        )
+
+    if meta.get("modoEjecucion") == "simulado":
+        limits.append(
+            "Analisis simulado con reglas heuristicas, no con el modelo de lenguaje"
         )
 
     monto = entrada.get("requested_amount")

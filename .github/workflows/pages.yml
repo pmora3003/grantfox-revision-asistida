@@ -3,6 +3,12 @@ name: Deploy GitHub Pages
 on:
   push:
     branches: [main]
+  workflow_dispatch:
+    inputs:
+      regenerar:
+        description: Regenerar datos.json con el pipeline Python
+        type: boolean
+        default: true
 
 permissions:
   contents: read
@@ -18,6 +24,33 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      - name: Modo de análisis (resumen)
+        run: |
+          if [ -n "${{ secrets.ANTHROPIC_API_KEY }}" ]; then
+            echo "## Modo: real" >> "$GITHUB_STEP_SUMMARY"
+            echo "Se usará el modelo de lenguaje durante la regeneración de datos." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "## Modo: simulado" >> "$GITHUB_STEP_SUMMARY"
+            echo "No hay ANTHROPIC_API_KEY configurada; se usarán heurísticas simuladas." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Configurar Python
+        if: github.event_name == 'push' || inputs.regenerar != false
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Instalar paquete Python
+        if: github.event_name == 'push' || inputs.regenerar != false
+        run: pip install -e .
+
+      - name: Regenerar datos de revisión
+        if: github.event_name == 'push' || inputs.regenerar != false
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: revisar --casos data/casos-demo.jsonl --todos --modo auto
+
       - uses: actions/setup-node@v4
         with:
           node-version: '20'

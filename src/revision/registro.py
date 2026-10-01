@@ -9,7 +9,7 @@ import time
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from revision.admisibilidad import evaluar_admisibilidad
 from revision.agregar import agregar
@@ -25,12 +25,39 @@ from revision.clasificar import clasificar_entrega
 from revision.config import cargar_admisibilidad, cargar_escala
 from revision.esquema import Salida
 from revision.normalizar import normalizar
+from revision.simulado import analizar_todas_simulado
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
+
+Modo = Literal["auto", "real", "simulado"]
 
 
 def _id_seguro(contribution_id: str) -> str:
     return re.sub(r"[^A-Za-z0-9._-]+", "_", contribution_id)
+
+
+def os_environ_key() -> str | None:
+    import os
+
+    return os.environ.get("ANTHROPIC_API_KEY")
+
+
+def resolver_modo(modo: Modo = "auto") -> Literal["real", "simulado"]:
+    """auto = real si hay ANTHROPIC_API_KEY (env o .env), si no simulado."""
+    if modo not in ("auto", "real", "simulado"):
+        raise ValueError(f"modo invalido: {modo}")
+    if modo == "simulado":
+        return "simulado"
+    cargar_dotenv()
+    tiene_clave = bool(os_environ_key())
+    if modo == "real":
+        if not tiene_clave:
+            raise RuntimeError(
+                "Modo real requiere ANTHROPIC_API_KEY en el entorno o en .env"
+            )
+        return "real"
+    # auto
+    return "real" if tiene_clave else "simulado"
 
 
 def _cliente_anthropic() -> Any:
@@ -41,12 +68,6 @@ def _cliente_anthropic() -> Any:
     import anthropic
 
     return anthropic.Anthropic(api_key=api_key)
-
-
-def os_environ_key() -> str | None:
-    import os
-
-    return os.environ.get("ANTHROPIC_API_KEY")
 
 
 def _hash_sha256_hex(texto: str) -> str:
@@ -63,14 +84,24 @@ def revisar(
     registro_crudo: dict[str, Any],
     cliente: Any | None = None,
     sin_modelo: bool = False,
+    modo: Modo = "auto",
 ) -> dict[str, Any]:
-    """Pipeline completo: normalizar, clasificar, admisibilidad, analisis, agregar."""
+    """Pipeline completo: normalizar, clasificar, admisibilidad, analisis, agregar.
+
+    modo: auto|real|simulado. sin_modelo conserva el atajo de todos los criterios
+    en evidencia_insuficiente (pruebas internas); el CLI usa --modo.
+    """
     inicio = time.perf_counter()
     cfg_escala = cargar_escala()
     cfg_adm = cargar_admisibilidad()
     instruccion = version_instruccion()
     instruction_text = instruccion_renderizada(cfg_escala)
     instruction_hash = _hash_sha256_hex(instruction_text)
+
+    if sin_modelo:
+        modo_efectivo: Literal["real", "simulado"] = "simulado"
+    else:
+        modo_efectivo = resolver_modo(modo)
 
     entrada = normalizar(registro_crudo)
     entrada_hash = _entrada_hash(entrada)
@@ -93,20 +124,35 @@ def revisar(
         "dependeInformacionExterna": False,
         "motivoDependencia": None,
         "diffCapado": diff_esta_capado(entrada),
+        "modoEjecucion": modo_efectivo,
     }
 
     if admissibility.get("outcome") == "no_admisible":
         criterios = criterios_insuficientes(
             f"Analisis detenido por admisibilidad ({admissibility.get('stoppedAt')})"
         )
+        if modo_efectivo == "simulado":
+            model_name = "simulado-heuristico"
+            model_version = "simulado-v1"
     elif sin_modelo:
         criterios = criterios_insuficientes("Ejecucion sin modelo")
+        model_name = "simulado-heuristico"
+        model_version = "simulado-v1"
+    elif modo_efectivo == "simulado":
+        criterios, tokens, meta_modelo = analizar_todas_simulado(
+            entrada, clasificacion, cfg_escala
+        )
+        meta.update(meta_modelo)
+        meta["modoEjecucion"] = "simulado"
+        model_name = "simulado-heuristico"
+        model_version = "simulado-v1"
     else:
         cli = cliente or _cliente_anthropic()
         criterios, tokens, meta_modelo = analizar_todas(
             cli, entrada, clasificacion, cfg_escala
         )
         meta.update(meta_modelo)
+        meta["modoEjecucion"] = "real"
         model_version = str(meta_modelo.get("modelId") or model_name)
 
     agregado = agregar(
@@ -131,6 +177,7 @@ def revisar(
         "model": {"name": model_name, "version": model_version},
         "instructionVersion": instruccion,
         "headSha": head_sha,
+        "modoEjecucion": modo_efectivo,
         "admissibility": {
             "outcome": admissibility["outcome"],
             "stoppedAt": admissibility.get("stoppedAt"),

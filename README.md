@@ -16,9 +16,15 @@ La clave de Anthropic va en `.env` en la raíz del repo, nunca la subo al git:
 ANTHROPIC_API_KEY=...
 ```
 
+## Modos de ejecucion
+
+El pipeline admite tres modos con `--modo`. `auto` es el default: usa el modelo si encuentra `ANTHROPIC_API_KEY` en el entorno o en `.env`, y si no corre el analisis simulado. `real` llama a Anthropic y falla con un error claro si falta la clave. `simulado` aplica reglas heuristicas deterministicas sobre el diff, sin red, y marca la salida con `modoEjecucion: "simulado"` y el modelo `simulado-heuristico`.
+
+La clave solo vive en `.env` local o en el secreto del repositorio en GitHub Actions. Nunca va en el frontend ni en los JSON publicados.
+
 ## Cómo lo corro
 
-Revisar el golden set local (no publicado) con el modelo:
+Revisar el golden set local (no publicado) con el modo automatico:
 
 ```bash
 revisar --todos
@@ -30,10 +36,16 @@ Una contribución por id:
 revisar --id "HASH:0"
 ```
 
-Sin llamadas al modelo (útil para pruebas rápidas):
+Analisis simulado (sin clave ni llamadas al modelo):
 
 ```bash
-revisar --todos --sin-modelo
+revisar --todos --modo simulado
+```
+
+Forzar el modelo (exige la clave):
+
+```bash
+revisar --todos --modo real
 ```
 
 Registrar la decisión humana sobre una recomendación previa:
@@ -53,21 +65,27 @@ El golden set no se publica: son decisiones internas. Lo uso solo en local con `
 
 ## Demo web
 
-La demo es una app React en `web/`. Los datos son casos sintéticos en `data/casos-prueba.jsonl`, con salidas precargadas por el pipeline en `web/public/datos.json`. Está publicada en GitHub Pages: https://pmora3003.github.io/grantfox-revision-asistida/
+La demo es una app React en `web/`. Publico doce PR reales del conjunto de evaluacion (solo insumos normalizados mas la salida del prototipo en `web/public/datos.json`). Las etiquetas internas del golden set no van al repo ni al sitio. Los casos sinteticos de prueba siguen en `data/casos-prueba.jsonl`; los uso en tests automatizados, no en la demo publicada. GitHub Pages: https://pmora3003.github.io/grantfox-revision-asistida/
 
-Para regenerar los datos de la demo:
-
-```bash
-revisar --casos data/casos-prueba.jsonl --todos
-```
-
-Eso vuelve a correr el pipeline y escribe `web/public/datos.json`. También sirve solo exportar desde `runs/`:
+Para regenerar la muestra de demo hace falta el golden set local (`data/golden-set.jsonl`, gitignored):
 
 ```bash
-revisar --exportar-web --casos data/casos-prueba.jsonl
+python scripts/muestra_demo.py
 ```
 
-Luego hago commit de `web/public/datos.json` si cambió.
+Eso escribe `data/casos-demo.jsonl` con ids `PR-01` a `PR-12` y muestra una tabla resumen en consola. Luego corro el pipeline sobre esa muestra:
+
+```bash
+revisar --casos data/casos-demo.jsonl --todos --modo simulado
+```
+
+Eso vuelve a correr el analisis y escribe `web/public/datos.json`. Tambien sirve solo exportar desde `runs/`:
+
+```bash
+revisar --exportar-web --casos data/casos-demo.jsonl
+```
+
+Luego hago commit de `data/casos-demo.jsonl` y de `web/public/datos.json` si cambiaron.
 
 Para verla en local:
 
@@ -75,9 +93,19 @@ Para verla en local:
 cd web && npm install && npm run dev
 ```
 
+## Clave en GitHub Pages
+
+El sitio en Pages es estatico. La clave de Anthropic no viaja al navegador ni se embebe en el frontend. Quien administra el repo la guarda como secreto `ANTHROPIC_API_KEY` y el workflow de deploy corre el pipeline con ese valor. Sin el secreto, el deploy publica el analisis simulado.
+
+El dueño del repo la configura asi:
+
+```bash
+gh secret set ANTHROPIC_API_KEY -R pmora3003/grantfox-revision-asistida
+```
+
 ## Pipeline
 
-Leo cada registro, lo normalizo quitando campos de etiquetado, clasifico archivos, evalúo admisibilidad con YAML versionado, y si pasa llamo al modelo por los 23 criterios. Luego agrego recomendación, confianza y prioridad, y guardo en `runs/`.
+Leo cada registro, lo normalizo quitando campos de etiquetado, clasifico archivos, evalúo admisibilidad con YAML versionado, y si pasa analizo los 23 criterios (modelo o heuristicas segun el modo). Luego agrego recomendación, confianza y prioridad, y guardo en `runs/`.
 
 | Módulo | Rol |
 |--------|-----|
@@ -85,6 +113,7 @@ Leo cada registro, lo normalizo quitando campos de etiquetado, clasifico archivo
 | `clasificar` | Tipos de archivo y volumen |
 | `admisibilidad` | Condiciones CA-001 a CA-005 |
 | `analizar` | Criterios CR con el modelo |
+| `simulado` | Criterios CR con heuristicas sin modelo |
 | `agregar` | Recompensa, recomendación, confianza |
 | `registro` | Orquestación y guardado |
 | `exportar` | `web/public/datos.json` para la demo |

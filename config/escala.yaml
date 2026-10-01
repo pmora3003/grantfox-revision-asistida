@@ -26,7 +26,16 @@ confianza:
     tarea_no_corresponde: 0.25
     evidencia_insuficiente_excesiva: 0.20
     dependencia_externa: 0.40
+    simulado: 0.15
   umbral_evidencia_insuficiente: 0.30
+
+simulado:
+  lineas_medio: 150
+  lineas_alto: 400
+  lineas_spike: 900
+  archivos_medio: 6
+  archivos_alto: 10
+  archivos_spike: 15
 
 severidad:
   CR-001: alta

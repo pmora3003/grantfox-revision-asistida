@@ -160,6 +160,9 @@ class Execution(BaseModel):
     entradaHash: str
 
 
+ModoEjecucion = Literal["real", "simulado"]
+
+
 class Salida(BaseModel):
     """Contrato minimo de salida por contribucion."""
 
@@ -170,6 +173,7 @@ class Salida(BaseModel):
     model: ModeloInfo
     instructionVersion: str
     headSha: str | None = None
+    modoEjecucion: ModoEjecucion = "real"
     admissibility: Admisibilidad
     fileClassification: FileClassification
     criteria: list[Criterio]
