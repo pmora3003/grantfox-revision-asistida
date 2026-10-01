@@ -1,0 +1,16 @@
+version: "1.0"
+fecha: "2026-09-30"
+
+condiciones:
+  - codigo: CA-001
+    enunciado: La solicitud de integración está fusionada en el repositorio de destino.
+  - codigo: CA-002
+    enunciado: La solicitud de integración modifica al menos seis archivos.
+    parametros:
+      min_archivos: 6
+  - codigo: CA-003
+    enunciado: La entrega contiene al menos un archivo de código, es decir, no está compuesta únicamente por documentación o por archivos de configuración.
+  - codigo: CA-004
+    enunciado: La solicitud de integración indica cuál es la tarea técnica que atiende.
+  - codigo: CA-005
+    enunciado: La persona contribuidora mantiene la cuenta habilitada, con la verificación de identidad completada y con un método de pago configurado.

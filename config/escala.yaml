@@ -1,0 +1,61 @@
+version: "1.0"
+fecha: "2026-09-30"
+
+niveles:
+  - nombre: bajo
+    min: 20
+    max: 40
+  - nombre: medio
+    min: 41
+    max: 70
+  - nombre: alto
+    min: 71
+    max: 100
+  - nombre: spike
+    min: 101
+    max: 150
+
+confianza:
+  alto: 0.90
+  medio: 0.70
+  penalizaciones:
+    truncado: 0.25
+    tarea_no_corresponde: 0.25
+    evidencia_insuficiente_excesiva: 0.20
+    dependencia_externa: 0.40
+  umbral_evidencia_insuficiente: 0.30
+
+severidad:
+  CR-001: alta
+  CR-002: media
+  CR-003: alta
+  CR-004: baja
+  CR-005: media
+  CR-006: baja
+  CR-007: baja
+  CR-008: media
+  CR-009: baja
+  CR-010: alta
+  CR-011: alta
+  CR-012: baja
+  CR-013: alta
+  CR-014: alta
+  CR-015: media
+  CR-016: alta
+  CR-017: media
+  CR-018: media
+  CR-019: baja
+  CR-020: baja
+  CR-021: baja
+  CR-022: media
+  CR-023: media
+
+pesos_severidad:
+  alta: 3
+  media: 2
+  baja: 1
+
+modelo:
+  nombre: claude-sonnet-5-5
+  temperatura: 0
+  max_tokens: 4096
