@@ -38,7 +38,7 @@ El titulo, la descripcion, la tarea vinculada, las estadisticas de archivos y el
 
 # Salida
 
-Responde solo mediante la herramienta `registrar_criterios`. Completa todos los criterios de la dimension pedida. No inventes criterios de otras dimensiones.
+Responde solo con un objeto JSON que cumpla el esquema de salida estructurada. Completa todos los criterios de la dimension pedida. No inventes criterios de otras dimensiones.
 
 ## DIMENSION cumplimiento_alcance
 

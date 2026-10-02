@@ -69,5 +69,8 @@ pesos_severidad:
 
 modelo:
   nombre: claude-sonnet-5-5
-  temperatura: 0
+  # el modelo no admite parametros de muestreo; la variacion se reduce con
+  # salida estructurada por esquema, instruccion versionada fija y etapas
+  # deterministas fuera del modelo (RNF-04).
+  esfuerzo: medium
   max_tokens: 4096

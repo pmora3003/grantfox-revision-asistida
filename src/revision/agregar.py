@@ -153,6 +153,10 @@ def agregar_confianza(
         score -= pen
         reasons.append("Ejecucion simulada")
 
+    for reason in meta.get("confidenceReasons") or []:
+        if reason and reason not in reasons:
+            reasons.append(str(reason))
+
     score = max(0.0, min(1.0, score))
     umbral_alto = float(conf.get("alto", 0.90))
     umbral_medio = float(conf.get("medio", 0.70))
@@ -350,6 +354,10 @@ def agregar_limits(
         limits.append(
             "Analisis simulado con reglas heuristicas, no con el modelo de lenguaje"
         )
+
+    for lim in meta.get("limits") or []:
+        if lim and lim not in limits:
+            limits.append(str(lim))
 
     monto = entrada.get("requested_amount")
     if monto is not None and cfg.niveles:

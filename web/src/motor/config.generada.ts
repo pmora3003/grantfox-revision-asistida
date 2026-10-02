@@ -2,7 +2,7 @@
 // Generado por web/scripts/generar-config.mjs. No editar a mano.
 
 export const instructionVersion = "instruccion-v1" as const
-export const instructionHash = "77a793bf327a47ec748afd40cc34a457bf844db6c1e8234200d0a63ad2054435" as const
+export const instructionHash = "0eb3c0b4b5f5f1f150a8333b7526c1391d4a9d83f6d1ea0c49abaf3cc92a9203" as const
 
 export const escala = {
   "version": "1.0",
@@ -73,7 +73,7 @@ export const escala = {
   },
   "modelo": {
     "nombre": "claude-sonnet-5-5",
-    "temperatura": 0,
+    "esfuerzo": "medium",
     "max_tokens": 4096
   },
   "techo_observado": 150,
@@ -163,7 +163,7 @@ export const escala = {
     },
     "modelo": {
       "nombre": "claude-sonnet-5-5",
-      "temperatura": 0,
+      "esfuerzo": "medium",
       "max_tokens": 4096
     }
   }

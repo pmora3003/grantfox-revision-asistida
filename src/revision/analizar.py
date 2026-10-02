@@ -291,7 +291,15 @@ def construir_mensaje_usuario(
     return "\n".join(partes)
 
 
-def _esquema_herramienta(dimension: str) -> dict[str, Any]:
+_EVIDENCIA_SALIDA_INVALIDA = (
+    "El modelo no devolvio una salida valida para esta dimension"
+)
+
+
+def _esquema_salida(dimension: str) -> dict[str, Any]:
+    """JSON Schema compatible con salida estructurada (additionalProperties false,
+    required completo; opcionales como union con null; sin min/max/pattern/format).
+    """
     codigos = list(CODIGOS_POR_DIMENSION[dimension])
     props_criterio: dict[str, Any] = {
         "code": {"type": "string", "enum": codigos},
@@ -299,16 +307,16 @@ def _esquema_herramienta(dimension: str) -> dict[str, Any]:
         "evidence": {"type": "string"},
         "file": {"type": ["string", "null"]},
         "fragment": {"type": ["string", "null"]},
-        "line": {
-            "type": ["integer", "null"],
-            "description": (
-                "Numero de linea dentro del archivo en la version nueva, "
-                "cuando pueda leerse de las cabeceras del hunk del diff "
-                "(por ejemplo @@ -a,b +c,d @@ apunta a la linea c)."
-            ),
-        },
+        "line": {"type": ["integer", "null"]},
     }
-    required_criterio = ["code", "level", "evidence", "file", "fragment"]
+    required_criterio = [
+        "code",
+        "level",
+        "evidence",
+        "file",
+        "fragment",
+        "line",
+    ]
 
     properties: dict[str, Any] = {
         "criterios": {
@@ -355,6 +363,39 @@ def _esquema_herramienta(dimension: str) -> dict[str, Any]:
         "required": required,
         "additionalProperties": False,
     }
+
+
+def _criterios_salida_invalida(dimension: str) -> list[dict[str, Any]]:
+    return [
+        _criterio_vacio(codigo, dimension, _EVIDENCIA_SALIDA_INVALIDA)
+        for codigo in CODIGOS_POR_DIMENSION[dimension]
+    ]
+
+
+def _meta_base_dimension(
+    dimension: str,
+    model_id: str,
+    entrada: dict[str, Any],
+    *,
+    salida_invalida: bool = False,
+) -> dict[str, Any]:
+    meta: dict[str, Any] = {
+        "automationSignals": [],
+        "tareaCorresponde": None,
+        "modelId": model_id,
+        "diffCapado": diff_esta_capado(entrada),
+        "limits": [],
+        "confidenceReasons": [],
+    }
+    if salida_invalida:
+        meta["limits"] = [_EVIDENCIA_SALIDA_INVALIDA]
+        meta["confidenceReasons"] = [_EVIDENCIA_SALIDA_INVALIDA]
+    if dimension == "proporcionalidad":
+        meta["suggestedLevel"] = None
+        meta["suggestedAmount"] = None
+        meta["dependeInformacionExterna"] = False
+        meta["motivoDependencia"] = None
+    return meta
 
 
 def _normalizar_linea(valor: Any) -> int | None:
@@ -456,23 +497,21 @@ def analizar_dimension(
     user = construir_mensaje_usuario(dimension, entrada, clasificacion, previos)
 
     modelo = str(cfg.modelo.get("nombre", "claude-sonnet-5-5"))
-    temperatura = float(cfg.modelo.get("temperatura", 0))
+    esfuerzo = str(cfg.modelo.get("esfuerzo", "medium"))
     max_tokens = int(cfg.modelo.get("max_tokens", 4096))
+    esquema = _esquema_salida(dimension)
 
-    herramienta = {
-        "name": "registrar_criterios",
-        "description": "Registra la valoracion de todos los criterios de la dimension.",
-        "input_schema": _esquema_herramienta(dimension),
-    }
-
-    respuesta = cliente.messages.create(
+    respuesta = cliente.beta.messages.create(
         model=modelo,
         max_tokens=max_tokens,
-        temperature=temperatura,
         system=system,
         messages=[{"role": "user", "content": user}],
-        tools=[herramienta],
-        tool_choice={"type": "tool", "name": "registrar_criterios"},
+        output_config={
+            "effort": esfuerzo,
+            "format": {"type": "json_schema", "schema": esquema},
+        },
+        betas=["server-side-fallback-2026-07-01"],
+        fallbacks="default",
     )
 
     uso = {
@@ -481,25 +520,47 @@ def analizar_dimension(
     }
     model_id = getattr(respuesta, "model", None) or modelo
 
-    args: dict[str, Any] = {}
-    for bloque in respuesta.content:
-        if getattr(bloque, "type", None) == "tool_use" and getattr(
-            bloque, "name", None
-        ) == "registrar_criterios":
-            args = dict(bloque.input or {})
+    if getattr(respuesta, "stop_reason", None) == "refusal":
+        criterios = _criterios_salida_invalida(dimension)
+        meta = _meta_base_dimension(
+            dimension, model_id, entrada, salida_invalida=True
+        )
+        criterios = postvalidar_criterios(criterios, entrada, meta)
+        return criterios, uso, meta
+
+    texto_json: str | None = None
+    for bloque in respuesta.content or []:
+        if getattr(bloque, "type", None) == "text":
+            texto_json = getattr(bloque, "text", None)
             break
+
+    args: dict[str, Any] = {}
+    parse_ok = False
+    if isinstance(texto_json, str) and texto_json.strip():
+        try:
+            cargado = json.loads(texto_json)
+            if isinstance(cargado, dict):
+                args = cargado
+                parse_ok = True
+        except json.JSONDecodeError:
+            parse_ok = False
+
+    if not parse_ok:
+        criterios = _criterios_salida_invalida(dimension)
+        meta = _meta_base_dimension(
+            dimension, model_id, entrada, salida_invalida=True
+        )
+        criterios = postvalidar_criterios(criterios, entrada, meta)
+        return criterios, uso, meta
 
     criterios = _normalizar_criterios(dimension, list(args.get("criterios") or []))
     signals = [
         sanitizar_texto_modelo(str(s)) or ""
         for s in list(args.get("automationSignals") or [])
     ]
-    meta: dict[str, Any] = {
-        "automationSignals": signals,
-        "tareaCorresponde": args.get("tareaCorresponde"),
-        "modelId": model_id,
-        "diffCapado": diff_esta_capado(entrada),
-    }
+    meta = _meta_base_dimension(dimension, model_id, entrada)
+    meta["automationSignals"] = signals
+    meta["tareaCorresponde"] = args.get("tareaCorresponde")
     if dimension == "proporcionalidad":
         meta["suggestedLevel"] = args.get("suggestedLevel")
         meta["suggestedAmount"] = args.get("suggestedAmount")
@@ -536,6 +597,8 @@ def analizar_todas(
         "motivoDependencia": None,
         "modelId": str(cfg.modelo.get("nombre", "claude-sonnet-5-5")),
         "diffCapado": diff_capado,
+        "limits": [],
+        "confidenceReasons": [],
     }
 
     for dimension in DIMENSIONES:
@@ -548,6 +611,12 @@ def analizar_todas(
         tokens["output_tokens"] += uso.get("output_tokens", 0)
         if m.get("modelId"):
             meta["modelId"] = m["modelId"]
+        for lim in m.get("limits") or []:
+            if lim and lim not in meta["limits"]:
+                meta["limits"].append(lim)
+        for reason in m.get("confidenceReasons") or []:
+            if reason and reason not in meta["confidenceReasons"]:
+                meta["confidenceReasons"].append(reason)
         if dimension == "cumplimiento_alcance":
             meta["tareaCorresponde"] = m.get("tareaCorresponde")
         if dimension == "calidad_tecnica":

@@ -2,13 +2,18 @@
 
 from __future__ import annotations
 
+import json
+from types import SimpleNamespace
+
 from revision.analizar import (
     CODIGOS_POR_DIMENSION,
+    analizar_dimension,
     construir_mensaje_usuario,
     postvalidar_criterios,
     redactar_secretos,
     sanitizar_texto_modelo,
 )
+from revision.config import cargar_escala
 
 
 def _criterio(
@@ -149,3 +154,143 @@ def test_sanitizar_anonimiza_y_redacta():
     assert "me@example.com" not in out
     assert "[redactado]" in out
     assert 'password: "[valor omitido]"' in out
+
+
+def _entrada_minima() -> dict:
+    return {
+        "id": "t:modelo",
+        "requested_amount": 40,
+        "context": {
+            "title": "PR",
+            "body": "cambio",
+            "linkedIssueTitle": "tarea",
+            "linkedIssueBody": "desc",
+            "diff": "diff --git a/a.rs b/a.rs\n",
+            "truncated": False,
+            "fileStats": [{"path": "a.rs", "additions": 1, "deletions": 0}],
+            "ciConclusion": "success",
+            "reviewCommentCount": 0,
+        },
+    }
+
+
+def _clasificacion_minima() -> dict:
+    return {
+        "byType": {
+            "codigo": 1,
+            "pruebas": 0,
+            "documentacion": 0,
+            "generado": 0,
+            "configuracion": 0,
+        },
+        "realVolume": {"files": 1, "additions": 1, "deletions": 0},
+    }
+
+
+def _payload_dimension(dimension: str) -> dict:
+    criterios = []
+    for code in CODIGOS_POR_DIMENSION[dimension]:
+        criterios.append(
+            {
+                "code": code,
+                "level": "cumple",
+                "evidence": f"evidencia {code}",
+                "file": "a.rs",
+                "fragment": "fn main()",
+                "line": 1,
+            }
+        )
+    return {
+        "criterios": criterios,
+        "automationSignals": [],
+        "tareaCorresponde": True,
+    }
+
+
+class _FakeMessages:
+    def __init__(self, respuesta):
+        self.respuesta = respuesta
+        self.kwargs = None
+
+    def create(self, **kwargs):
+        self.kwargs = kwargs
+        return self.respuesta
+
+
+class _FakeClient:
+    def __init__(self, respuesta):
+        self._messages = _FakeMessages(respuesta)
+        self.beta = SimpleNamespace(messages=self._messages)
+
+    @property
+    def last_kwargs(self):
+        return self._messages.kwargs
+
+
+def test_analizar_dimension_usa_salida_estructurada_sin_temperatura():
+    dimension = "cumplimiento_alcance"
+    payload = _payload_dimension(dimension)
+    respuesta = SimpleNamespace(
+        stop_reason="end_turn",
+        model="claude-sonnet-5-5",
+        usage=SimpleNamespace(input_tokens=11, output_tokens=22),
+        content=[SimpleNamespace(type="text", text=json.dumps(payload))],
+    )
+    cliente = _FakeClient(respuesta)
+    cfg = cargar_escala()
+
+    criterios, uso, meta = analizar_dimension(
+        cliente,
+        dimension,
+        _entrada_minima(),
+        _clasificacion_minima(),
+        config=cfg,
+    )
+
+    kwargs = cliente.last_kwargs
+    assert kwargs is not None
+    assert "temperature" not in kwargs
+    assert "top_p" not in kwargs
+    assert "top_k" not in kwargs
+    assert "tool_choice" not in kwargs
+    assert "tools" not in kwargs
+    assert "output_config" in kwargs
+    assert kwargs["output_config"]["format"]["type"] == "json_schema"
+    assert "schema" in kwargs["output_config"]["format"]
+    assert kwargs["output_config"]["effort"] == cfg.modelo.get("esfuerzo", "medium")
+    assert kwargs["betas"] == ["server-side-fallback-2026-07-01"]
+    assert kwargs["fallbacks"] == "default"
+    assert uso == {"input_tokens": 11, "output_tokens": 22}
+    assert meta["modelId"] == "claude-sonnet-5-5"
+    assert len(criterios) == len(CODIGOS_POR_DIMENSION[dimension])
+    assert all(c["level"] == "cumple" for c in criterios)
+    assert meta["limits"] == []
+    assert meta["confidenceReasons"] == []
+
+
+def test_analizar_dimension_refusal_marca_salida_invalida():
+    dimension = "calidad_tecnica"
+    respuesta = SimpleNamespace(
+        stop_reason="refusal",
+        model="claude-sonnet-5-5",
+        usage=SimpleNamespace(input_tokens=3, output_tokens=0),
+        content=[],
+    )
+    cliente = _FakeClient(respuesta)
+
+    criterios, uso, meta = analizar_dimension(
+        cliente,
+        dimension,
+        _entrada_minima(),
+        _clasificacion_minima(),
+        config=cargar_escala(),
+    )
+
+    assert uso == {"input_tokens": 3, "output_tokens": 0}
+    assert meta["modelId"] == "claude-sonnet-5-5"
+    evidencia = "El modelo no devolvio una salida valida para esta dimension"
+    assert len(criterios) == len(CODIGOS_POR_DIMENSION[dimension])
+    assert all(c["level"] == "evidencia_insuficiente" for c in criterios)
+    assert all(c["evidence"] == evidencia for c in criterios)
+    assert evidencia in meta["limits"]
+    assert evidencia in meta["confidenceReasons"]
