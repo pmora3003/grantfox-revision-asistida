@@ -1,6 +1,6 @@
 # Revisión asistida GrantFox
 
-Soy Pablo. Este repo es mi prototipo de tesis para GrantFox: ayuda a revisar contribuciones técnicas con reglas fijas y un modelo de lenguaje. No decide nada por sí solo y no se conecta a sistemas productivos.
+Soy Pablo Mora. Este repo es mi prototipo de Trabajo Final de Graduación para GrantFox: ayuda a revisar contribuciones técnicas con reglas fijas y un modelo de lenguaje. No decide nada por sí solo y no se conecta a sistemas productivos.
 
 Cómo lo construí: [docs/PROTOTIPO.md](docs/PROTOTIPO.md).
 
