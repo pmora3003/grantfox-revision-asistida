@@ -1,16 +1,16 @@
 # Prototipo de revisión asistida de contribuciones técnicas: cómo lo construí
 
-Soy Pablo. Este documento describe el prototipo de mi TFG para GrantFox: qué hace, cómo está armado, con qué datos lo evalúo y qué queda pendiente. Cada afirmación remite al código del repo, a `.ref/contexto.md` o a hechos que dejo explícitos aquí. Cuando algo es decisión propia del proyecto (no sale de un marco), lo digo.
+Soy Pablo. Este documento describe el prototipo de mi TFG para GrantFox: qué hace, cómo está armado, con qué datos lo evalúo y qué queda pendiente. Cada afirmación remite al código del repo, a la especificación funcional del TFG o a hechos que dejo explícitos aquí. Cuando algo es decisión propia del proyecto (no sale de un marco), lo digo.
 
 ## 1. En pocas palabras
 
 El prototipo es un asistente que lee una solicitud de integración ya fusionada y propone una recomendación no vinculante: aprobar, rechazar, ajustar el monto o derivar a revisión humana. No paga, no modifica montos y no escribe en sistemas productivos. Una persona revisora lee el análisis y decide.
 
-El flujo es fijo. Primero comprueba admisibilidad con reglas deterministas. Si el caso pasa, clasifica archivos, valora veintitrés criterios en cuatro dimensiones (con modelo o con el motor de reglas) y agrega nivel de recompensa, confianza y prioridad. La salida queda registrada para auditoría.
+El flujo es fijo. Primero normaliza la entrada y clasifica los archivos; con eso comprueba la admisibilidad con reglas deterministas. Si el caso pasa, valora veintitrés criterios en cuatro dimensiones (con modelo o con el motor de reglas) y agrega nivel de recompensa, confianza y prioridad. La salida queda registrada para auditoría.
 
 ## 2. Alcance
 
-Qué hace (contexto sección 3):
+Qué hace:
 
 | # | Capacidad |
 |---|---|
@@ -25,7 +25,7 @@ Qué hace (contexto sección 3):
 | 9 | Registra la ejecución (modelo, versión, instrucción, duración) |
 | 10 | Enumera lo que no resuelve con los insumos recibidos |
 
-Qué no hace (restricción dura, cláusulas 4B.2 y 13.4 de los Términos y Condiciones de GrantFox, y contexto sección 3 y 11):
+Qué no hace (restricción dura, cláusulas 4B.2 y 13.4 de los Términos y Condiciones de GrantFox):
 
 | # | Restricción |
 |---|---|
@@ -44,10 +44,10 @@ Pipeline de una contribución. Los nodos con borde grueso son código determinis
 ```mermaid
 flowchart TD
   A["Registro / entrada"] --> B["Normalizador"]
-  B --> C["Admisibilidad CA-001 a CA-004"]
+  B --> D["Clasificador de archivos"]
+  D --> C["Admisibilidad CA-001 a CA-004"]
   C -->|falla| H["Salida temprana no_admisible"]
-  C -->|pasa| D["Clasificador de archivos"]
-  D --> E["Analisis por dimension: 4 llamadas"]
+  C -->|pasa| E["Analisis por dimension: 4 llamadas"]
   E --> F["Agregador"]
   F --> G["Registro de ejecucion"]
   G --> I["Presentacion y decision humana"]
@@ -64,13 +64,13 @@ flowchart TD
   style E fill:#f5f0e6,stroke:#8a6d3b,stroke-width:2px
 ```
 
-Registro o entrada. El caso llega como un objeto JSONL con los insumos del registro (contexto 4) o se arma en el navegador desde un enlace de PR público. Orquestación en `src/revision/registro.py` (`revisar`) y, en la web, en `web/src/motor/index.ts` (`procesarEntrada`).
+Registro o entrada. El caso llega como un objeto JSONL con los insumos del registro o se arma en el navegador desde un enlace de PR público. Orquestación en `src/revision/registro.py` (`revisar`) y, en la web, en `web/src/motor/index.ts` (`procesarEntrada`).
 
 Normalizador. Quita campos de etiquetado (`expected`, `excluded`, etc.) y deja solo la entrada del análisis. Implementado en `src/revision/normalizar.py` y portado en `web/src/motor/normalizar.ts`.
 
-Admisibilidad CA-001 a CA-004. Reglas deterministas con salida temprana si alguna falla; CA-005 queda `no_verificable` porque no está en el insumo. Configuración versionada en `config/admisibilidad.yaml`. Código en `src/revision/admisibilidad.py` y `web/src/motor/admisibilidad.ts`. Cumple el determinismo pedido por RNF-02.
+Clasificador de archivos. Asigna tipo (código, pruebas, documentación, generado, configuración) y calcula volumen real descontando generados. `src/revision/clasificar.py` y `web/src/motor/clasificar.ts`. Corre antes de la admisibilidad porque CA-003 necesita saber si la entrega trae al menos un archivo de código.
 
-Clasificador de archivos. Asigna tipo (código, pruebas, documentación, generado, configuración) y calcula volumen real descontando generados. `src/revision/clasificar.py` y `web/src/motor/clasificar.ts`.
+Admisibilidad CA-001 a CA-004. Reglas deterministas con salida temprana si alguna falla; CA-005 queda `no_verificable` porque no está en el insumo. Configuración versionada en `config/admisibilidad.yaml`. Código en `src/revision/admisibilidad.py` y `web/src/motor/admisibilidad.ts`. Cumple el determinismo pedido por RNF-02.
 
 Análisis por dimensión. Único paso no determinista en el sentido del modelo: cuatro llamadas en orden (alcance, calidad, seguridad, proporcionalidad al final porque consume las tres anteriores). En modo real usa Anthropic (`src/revision/analizar.py`); en modo reglas usa heurísticas fijas (`src/revision/reglas.py`, port TS `web/src/motor/reglas.ts`). La instrucción versionada está en `prompts/instruccion_v1.md`.
 
@@ -143,11 +143,11 @@ sequenceDiagram
   PM->>RP: Solicita presupuesto de un PR fusionado
   RP->>PI: Entrega los insumos de la contribucion
   PI->>PI: Normaliza la entrada
+  PI->>PI: Clasifica archivos y calcula volumen real
   PI->>PI: Admisibilidad CA-001 a CA-004
   alt No admisible
     PI->>PI: Detiene el analisis y registra la condicion que fallo
   else Admisible
-    PI->>PI: Clasifica archivos y calcula volumen real
     loop Alcance, calidad, seguridad
       PI->>LLM: Instruccion versionada y datos delimitados
       LLM-->>PI: Criterios con nivel, evidencia y fragmento
@@ -164,7 +164,7 @@ sequenceDiagram
 
 Sin clave de la API, el paso del modelo lo cumple el motor de reglas deterministas con la misma entrada y la misma salida.
 
-Las etapas E1 a E5 de la UI (`web/src/etapas.ts`) son: admisibilidad, clasificación, dimensiones, agregación, cola humana. Encajan con el pipeline, no lo reemplazan.
+Las etapas E1 a E5 de la UI (`web/src/etapas.ts`) son: admisibilidad, clasificación, dimensiones, agregación, cola humana. Encajan con el pipeline, no lo reemplazan. La interfaz muestra primero la admisibilidad porque es la puerta del análisis; en el código la clasificación se calcula antes porque CA-003 la usa.
 
 ## 5. Datos
 
@@ -176,9 +176,9 @@ Las etapas E1 a E5 de la UI (`web/src/etapas.ts`) son: admisibilidad, clasificac
 | `web/public/datos.json` | Salidas precalculadas de la demo | Sí |
 | `web/public/metricas.json` | Agregados de evaluación, sin ids ni casos individuales | Sí |
 
-Campos de entrada (contexto 4): `id`, `context.prUrl`, `context.headSha`, `context.title`, `context.body`, `context.merged`, `context.state`, `context.linkedIssueTitle`, `context.linkedIssueBody`, `context.diff`, `context.truncated`, `context.fileStats[]`, `context.ciConclusion`, `context.reviewCommentCount`, `requested_amount`.
+Campos de entrada: `id`, `context.prUrl`, `context.headSha`, `context.title`, `context.body`, `context.merged`, `context.state`, `context.linkedIssueTitle`, `context.linkedIssueBody`, `context.diff`, `context.truncated`, `context.fileStats[]`, `context.ciConclusion`, `context.reviewCommentCount`, `requested_amount`.
 
-Contrato de salida (contexto 9), resumido, más campos que agregué en el prototipo:
+Contrato de salida, resumido, más campos que agregué en el prototipo:
 
 | Campo | Rol |
 |---|---|
@@ -198,7 +198,7 @@ Contrato de salida (contexto 9), resumido, más campos que agregué en el protot
 | `modoEjecucion` | `real` o `reglas` |
 | `headSha` | Commit examinado |
 
-Excerpt del contrato mínimo (contexto 9):
+Excerpt del contrato mínimo:
 
 ```json
 {
@@ -226,11 +226,11 @@ Excerpt del contrato mínimo (contexto 9):
 
 ## 6. Reglas de negocio implementadas
 
-Admisibilidad. CA-001 a CA-004 en orden con corte al primer fallo; CA-005 siempre `no_verificable` en este prototipo. Umbral de CA-002: al menos 6 archivos en `fileStats`, tomado del registro examinado (contexto 5), parametrizado en `config/admisibilidad.yaml` como `min_archivos: 6`.
+Admisibilidad. CA-001 a CA-004 en orden con corte al primer fallo; CA-005 siempre `no_verificable` en este prototipo. Umbral de CA-002: al menos 6 archivos en `fileStats`, tomado del registro examinado, parametrizado en `config/admisibilidad.yaml` como `min_archivos: 6`.
 
 Clasificación y volumen real. Por extensión y ubicación; lockfiles y artefactos de build cuentan como generados y salen del volumen real (`clasificar.py`). CA-003 exige al menos un archivo de tipo código (las pruebas solas no bastan).
 
-Cuatro dimensiones y cuatro niveles. Alcance (CR-001 a CR-005), calidad técnica (CR-006 a CR-012), riesgos de seguridad (CR-013 a CR-018), proporcionalidad (CR-019 a CR-023). Niveles: `cumple`, `cumple_parcialmente`, `no_cumple`, `evidencia_insuficiente`. El detalle de los 23 criterios está en la matriz (RG-01: no reproduzco el texto completo aquí). Marcos al nivel permitido por contexto 7.6: ISO/IEC 25010:2023 en características (adecuación funcional; fiabilidad, mantenibilidad y compatibilidad), NIST SP 800-218 PW.7 / PW.7.2 para seguridad, proporcionalidad sin marco externo (documentación interna GrantFox).
+Cuatro dimensiones y cuatro niveles. Alcance (CR-001 a CR-005), calidad técnica (CR-006 a CR-012), riesgos de seguridad (CR-013 a CR-018), proporcionalidad (CR-019 a CR-023). Niveles: `cumple`, `cumple_parcialmente`, `no_cumple`, `evidencia_insuficiente`. El detalle de los 23 criterios está en la matriz (RG-01: no reproduzco el texto completo aquí). Marcos, al nivel que fija la matriz de criterios del TFG: ISO/IEC 25010:2023 en características (adecuación funcional; fiabilidad, mantenibilidad y compatibilidad), NIST SP 800-218 PW.7 / PW.7.2 para seguridad, proporcionalidad sin marco externo (documentación interna GrantFox).
 
 Orden de decisión en el agregador (`src/revision/agregar.py`, función `agregar_recomendacion`), tal como está implementado:
 
@@ -245,7 +245,7 @@ Orden de decisión en el agregador (`src/revision/agregar.py`, función `agregar
 
 Confianza (`config/escala.yaml`). Parte de 1.0 y resta: truncado 0.25, tarea que no corresponde o no verificable 0.25, evidencia insuficiente excesiva (ratio > 0.30) 0.20, dependencia externa 0.40, modo reglas 0.15. Bandas: alto cuando el puntaje es mayor que 0.85, medio entre 0.60 y 0.85 inclusive, bajo por debajo de 0.60. `supervisionScope`: confirmación / criterios no satisfechos / análisis completo. Si el caso se resolvió solo por admisibilidad, score 1.0 y banda alto.
 
-Prioridad. Fórmula concreta: suma de `pesos_severidad` (alta 3, media 2, baja 1) sobre criterios en `no_cumple` o `cumple_parcialmente`. El mapeo de severidad por código y la fórmula son decisiones del proyecto (contexto 16 puntos 3 y 5), no de un marco externo.
+Prioridad. Fórmula concreta: suma de `pesos_severidad` (alta 3, media 2, baja 1) sobre criterios en `no_cumple` o `cumple_parcialmente`. El mapeo de severidad por código y la fórmula son decisiones del proyecto, no de un marco externo.
 
 Escala de recompensa (RNF-10). Tramos en `config/escala.yaml`: bajo 20-40, medio 41-70, alto 71-100, spike ≥ 101 (techo observado informativo 150). Cambiar límites no exige tocar la lógica del análisis.
 
@@ -267,7 +267,7 @@ Tamaño medido en el golden set: mediana unos 32 000 caracteres de diff+body+iss
 
 Por qué Sonnet 5.5 (razones honestas): equilibrio entre capacidad para leer código y seguir 23 reglas de decisión, y costo por contribución; la ventana de contexto aguanta los diffs más grandes del registro sin truncar de más; salida estructurada; calidad en español. Haiku 4.5 queda como la alternativa de menor costo a medir en la comparación.
 
-El contexto sección 16 punto 4 exige documentar la elección con una comparación previa entre modelos, y esa comparación todavía no la corrí. Propuesta concreta: los mismos 10 a 12 casos del golden no excluidos sobre Haiku 4.5, Sonnet 5.5 y Opus 5.5, midiendo acuerdo de recomendación, acuerdo de nivel, proporción de evidencia verificable, consistencia entre dos corridas, duración y costo; costo aproximado bajo USD 10 en total; elegir con esos datos.
+La elección del modelo se documenta con una comparación entre modelos, que es entregable del cuarto objetivo específico del TFG, y esa comparación todavía no la corrí. Propuesta concreta: los mismos 10 a 12 casos del golden no excluidos sobre Haiku 4.5, Sonnet 5.5 y Opus 5.5, midiendo acuerdo de recomendación, acuerdo de nivel, proporción de evidencia verificable, consistencia entre dos corridas, duración y costo; costo aproximado bajo USD 10 en total; elegir con esos datos.
 
 ## 8. Modos de ejecución
 
@@ -413,14 +413,14 @@ cd web && npm run paridad
 
 ## 13. Límites y pendientes
 
-Abiertos en contexto 16: criterios mínimos aceptables por dimensión; calibración definitiva de umbrales de confianza; peso relativo de cada criterio (la organización no lo divulga; no lo invento); comparación previa entre modelos (sección 7); la fórmula de prioridad ya está fijada en código como decisión de proyecto, pero el punto 5 del contexto la dejaba abierta al diseñar.
+Puntos que la especificación dejaba abiertos al diseñar: criterios mínimos aceptables por dimensión; calibración definitiva de umbrales de confianza; peso relativo de cada criterio (la organización no lo divulga; no lo invento); comparación previa entre modelos (sección 7); la fórmula de prioridad ya está fijada en código como decisión de proyecto, pero la especificación la dejaba abierta.
 
 Pendientes propios de esta implementación:
 
 | Pendiente | Detalle |
 |---|---|
 | Corrida con modelo real | Pendiente de la clave de la API; demo y métricas publicadas con el motor de reglas |
-| Comparación Haiku / Sonnet / Opus | Exigida por contexto 16.4; propuesta en sección 7 |
+| Comparación Haiku / Sonnet / Opus | Entregable del cuarto objetivo específico del TFG; propuesta en sección 7 |
 | PR agregados en el navegador | Siempre se analizan en modo reglas (`procesarEntrada`) |
 | 2 de 9 casos excluidos | Se detienen en CA-002 y salen como `rechazar` en lugar de `derivar` |
 | Modo reglas conservador | Empuja muchas aprobaciones reales a `ajustar_monto` o `derivar_revision_humana` |

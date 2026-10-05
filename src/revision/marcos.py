@@ -1,4 +1,4 @@
-"""Carga de marcos de referencia y fuentes (RNF-01, contexto 7)."""
+"""Carga de marcos de referencia y fuentes (RNF-01)."""
 
 from __future__ import annotations
 

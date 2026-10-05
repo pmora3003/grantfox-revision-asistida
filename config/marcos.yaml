@@ -1,8 +1,8 @@
 version: "1.0"
 fecha: "2026-10-04"
 
-# Marcos y fuentes (RNF-01, contexto 7). Nivel de característica ISO solamente.
-# url: dirección oficial del contexto §7, o null si no existe.
+# Marcos y fuentes (RNF-01). Nivel de característica ISO solamente.
+# url: dirección oficial de la fuente, o null si no existe.
 
 condiciones:
   CA-001:

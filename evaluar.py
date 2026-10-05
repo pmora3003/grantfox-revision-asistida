@@ -1,4 +1,4 @@
-"""Evaluacion del prototipo contra el golden set (contexto seccion 15)."""
+"""Evaluacion del prototipo contra el golden set."""
 
 from __future__ import annotations
 

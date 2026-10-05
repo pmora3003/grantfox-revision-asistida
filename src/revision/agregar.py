@@ -533,7 +533,7 @@ def agregar_prioridad(
 ) -> dict[str, Any]:
     """Prioridad = suma de pesos_severidad de criterios no satisfechos.
 
-    La formula concreta es decision del proyecto (contexto 16.5).
+    La formula concreta es decision del proyecto.
     """
     cfg = config or cargar_escala()
     pesos = cfg.pesos_severidad

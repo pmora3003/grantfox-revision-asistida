@@ -138,7 +138,7 @@ Leo cada registro, lo normalizo quitando campos de etiquetado, clasifico archivo
 
 `config/escala.yaml` define niveles de recompensa (bajo, medio, alto, spike), umbrales de confianza, severidad por criterio y el nombre del modelo. `config/admisibilidad.yaml` trae la versión de las condiciones de admisibilidad y sus parámetros (por ejemplo mínimo de archivos en CA-002).
 
-La severidad por criterio y la fórmula de prioridad son decisiones propias del proyecto (contexto sección 16): no vienen de un marco externo.
+La severidad por criterio y la fórmula de prioridad son decisiones propias del proyecto: no vienen de un marco externo.
 
 ## Resultados
 

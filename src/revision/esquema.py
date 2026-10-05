@@ -1,4 +1,4 @@
-"""Contrato de salida (contexto seccion 9), modelos Pydantic v2."""
+"""Contrato de salida, modelos Pydantic v2."""
 
 from __future__ import annotations
 
