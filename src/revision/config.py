@@ -16,7 +16,6 @@ CAMPOS_ETIQUETADO = frozenset(
         "anchor",
         "labeled_at",
         "label_review",
-        "rubric_version",
         "excluded",
         "esperado",
     }
