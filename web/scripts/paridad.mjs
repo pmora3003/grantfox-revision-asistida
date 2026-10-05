@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Compara procesarEntrada (TS) con la salida simulada de Python.
+ * Compara procesarEntrada (TS) con la salida de reglas de Python.
  * Hace backup/restore de web/public/datos.json porque el CLI lo reescribe.
  */
 import { spawnSync } from 'node:child_process'
@@ -41,7 +41,7 @@ function correrPythonCasosPrueba(casosPath, salidaDir) {
         casosPath,
         '--todos',
         '--modo',
-        'simulado',
+        'reglas',
         '--salida',
         salidaDir,
       ],

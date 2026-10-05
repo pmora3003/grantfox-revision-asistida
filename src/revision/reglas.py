@@ -15,8 +15,8 @@ from revision.analizar import (
 )
 from revision.clasificar import clasificar_archivo
 from revision.config import ConfigEscala, cargar_escala, nivel_para_monto, rango_nivel, umbral_spike
+from revision.marcos import anotar_criterio
 
-_PREFIJO = "[simulado] "
 _RE_TOKEN = re.compile(r"[A-Za-z_][A-Za-z0-9_]{3,}")
 _RE_AC_LINEA = re.compile(r"^\s*-\s+(.+)$")
 _RE_IMPORT_EXPORT = re.compile(
@@ -186,21 +186,23 @@ def _criterio(
     fragment: str | None = None,
     line: int | None = None,
 ) -> dict[str, Any]:
-    ev = evidence if evidence.startswith(_PREFIJO) else _PREFIJO + evidence
+    ev = evidence
     frag = fragment
     if isinstance(frag, str):
         frag = redactar_secretos(frag)
         if len(frag) > 300:
             frag = frag[:300]
-    return {
-        "code": codigo,
-        "dimension": dimension,
-        "level": level,
-        "evidence": sanitizar_texto_modelo(ev) or ev,
-        "file": file,
-        "fragment": sanitizar_texto_modelo(frag) if frag else frag,
-        "line": line,
-    }
+    return anotar_criterio(
+        {
+            "code": codigo,
+            "dimension": dimension,
+            "level": level,
+            "evidence": sanitizar_texto_modelo(ev) or ev,
+            "file": file,
+            "fragment": sanitizar_texto_modelo(frag) if frag else frag,
+            "line": line,
+        }
+    )
 
 
 def _insuficiente(codigo: str, dimension: str, motivo: str) -> dict[str, Any]:
@@ -237,7 +239,7 @@ def _nivel_sugerido(
     clasificacion: dict[str, Any],
     config: ConfigEscala,
 ) -> str:
-    sim = dict((config.raw or {}).get("simulado") or {})
+    sim = dict((config.raw or {}).get("reglas") or {})
     vol = clasificacion.get("realVolume") or {}
     additions = int(vol.get("additions") or 0)
     files = int(vol.get("files") or 0)
@@ -403,7 +405,7 @@ def _analizar_alcance(
         cr003 = _insuficiente(
             "CR-003",
             dim,
-            "Sin solape lexical entre descripcion de tarea y el diff",
+            "Sin solape lexical entre descripción de tarea y el diff",
         )
         if kw_issue and hay:
             file_any, frag_any, line_any = _citar(archivos)
@@ -422,7 +424,7 @@ def _analizar_alcance(
         cr002 = _insuficiente(
             "CR-002",
             dim,
-            "La tarea no declara criterios de aceptacion en lineas '- ...'",
+            "La tarea no declara criterios de aceptación en líneas '- ...'",
         )
     else:
         hits = 0
@@ -435,13 +437,13 @@ def _analizar_alcance(
                     primer_hit = _citar(archivos, keywords=tk & hay)
         if hits == len(ac_lineas):
             level = "cumple"
-            msg = f"Los {hits} criterios de aceptacion tienen respaldo lexical en el diff"
+            msg = f"Los {hits} criterios de aceptación tienen respaldo lexical en el diff"
         elif hits > 0:
             level = "cumple_parcialmente"
-            msg = f"{hits} de {len(ac_lineas)} criterios de aceptacion tienen respaldo en el diff"
+            msg = f"{hits} de {len(ac_lineas)} criterios de aceptación tienen respaldo en el diff"
         else:
             level = "no_cumple"
-            msg = "Ningun criterio de aceptacion tiene respaldo lexical en el diff"
+            msg = "Ningún criterio de aceptación tiene respaldo lexical en el diff"
             primer_hit = _citar(archivos)
         cr002 = _criterio(
             "CR-002",
@@ -461,7 +463,7 @@ def _analizar_alcance(
             "CR-004",
             dim,
             "cumple",
-            f"Palabras del titulo aparecen en el diff ({', '.join(sorted(title_hit)[:6])})",
+            f"Palabras del título aparecen en el diff ({', '.join(sorted(title_hit)[:6])})",
             f_t,
             fr_t,
             l_t,
@@ -472,13 +474,13 @@ def _analizar_alcance(
             "CR-004",
             dim,
             "cumple_parcialmente",
-            "El titulo no solapa con identificadores del diff",
+            "El título no solapa con identificadores del diff",
             f_t,
             fr_t,
             l_t,
         )
     else:
-        cr004 = _insuficiente("CR-004", dim, "Sin titulo de solicitud para comparar")
+        cr004 = _insuficiente("CR-004", dim, "Sin título de solicitud para comparar")
 
     def _es_import(_texto: str, _path: str) -> bool:
         return bool(_RE_IMPORT_EXPORT.match("+" + _texto))
@@ -489,7 +491,7 @@ def _analizar_alcance(
             "CR-005",
             dim,
             "cumple",
-            "Aparece import/export de modulo nuevo en el diff",
+            "Aparece import/export de módulo nuevo en el diff",
             f_i,
             fr_i,
             l_i,
@@ -498,7 +500,7 @@ def _analizar_alcance(
         cr005 = _insuficiente(
             "CR-005",
             dim,
-            "No se observa import/export de un modulo nuevo en lineas agregadas",
+            "No se observa import/export de un módulo nuevo en líneas agregadas",
         )
 
     return [cr001, cr002, cr003, cr004, cr005], {"tareaCorresponde": tarea}
@@ -539,7 +541,7 @@ def _analizar_calidad(
             "CR-006",
             dim,
             "cumple",
-            f"La clasificacion reporta {n_pruebas} archivo(s) de pruebas",
+            f"La clasificación reporta {n_pruebas} archivo(s) de pruebas",
             f_p,
             fr_p,
             l_p,
@@ -550,7 +552,7 @@ def _analizar_calidad(
             "CR-006",
             dim,
             "no_cumple",
-            "No hay archivos de pruebas en la clasificacion",
+            "No hay archivos de pruebas en la clasificación",
             f_any,
             fr_any,
             l_any,
@@ -616,7 +618,7 @@ def _analizar_calidad(
         cr008 = _insuficiente(
             "CR-008",
             dim,
-            "No se observan senales claras de manejo de error en lineas agregadas",
+            "No se observan señales claras de manejo de error en líneas agregadas",
         )
 
     cr009 = _insuficiente(
@@ -659,7 +661,7 @@ def _analizar_calidad(
             "CR-010",
             dim,
             "no_cumple",
-            f"Archivos en {len(areas_utiles)} areas sin keyword compartida y el body declara varios cambios",
+            f"Archivos en {len(areas_utiles)} áreas sin keyword compartida y el body declara varios cambios",
             f_a,
             fr_a,
             l_a,
@@ -670,7 +672,7 @@ def _analizar_calidad(
             "CR-010",
             dim,
             "cumple",
-            "No se observa agrupacion de cambios no relacionados con senales de multi-cambio en el body",
+            "No se observa agrupación de cambios no relacionados con señales de multi-cambio en el body",
             f_a,
             fr_a,
             l_a,
@@ -682,19 +684,19 @@ def _analizar_calidad(
     if n_todo >= 3:
         signals.append(f"muchas marcas TODO/FIXME ({n_todo})")
     if any(_RE_PLACEHOLDER.search(ln) for ln in lineas):
-        signals.append("texto placeholder o lorem en lineas agregadas")
+        signals.append("texto placeholder o lorem en líneas agregadas")
     if _bloques_repetidos(lineas):
-        signals.append("bloques de lineas identicas repetidos")
+        signals.append("bloques de líneas idénticas repetidos")
 
     if len(signals) >= 2:
         level_011 = "no_cumple"
-        msg_011 = "Varias senales de generacion automatica sin revision"
+        msg_011 = "Varias señales de generación automática sin revisión"
     elif len(signals) == 1:
         level_011 = "cumple_parcialmente"
-        msg_011 = f"Senal aislada de automatizacion: {signals[0]}"
+        msg_011 = f"Señal aislada de automatización: {signals[0]}"
     else:
         level_011 = "cumple"
-        msg_011 = "No se observan senales claras de generacion automatica"
+        msg_011 = "No se observan señales claras de generación automática"
     f_s, fr_s, l_s = _citar(archivos)
     if signals:
         def _sig(texto: str, _p: str) -> bool:
@@ -821,7 +823,7 @@ def _analizar_seguridad(
             "CR-013",
             dim,
             "no_cumple",
-            f"Posible secreto en linea agregada (valor omitido) en {secreto_hit['path']}:{secreto_hit['line']}",
+            f"Posible secreto en línea agregada (valor omitido) en {secreto_hit['path']}:{secreto_hit['line']}",
             secreto_hit["path"],
             secreto_hit["fragment"],
             secreto_hit["line"],
@@ -832,7 +834,7 @@ def _analizar_seguridad(
             "CR-013",
             dim,
             "cumple",
-            "No se observan patrones de secreto en lineas agregadas",
+            "No se observan patrones de secreto en líneas agregadas",
             f_a,
             fr_a,
             l_a,
@@ -847,7 +849,7 @@ def _analizar_seguridad(
             "CR-014",
             dim,
             "cumple",
-            "Senal de middleware o comprobacion de autenticacion en el diff",
+            "Señal de middleware o comprobación de autenticación en el diff",
             f_au,
             fr_au,
             l_au,
@@ -856,7 +858,7 @@ def _analizar_seguridad(
         cr014 = _insuficiente(
             "CR-014",
             dim,
-            "Sin senales claras de auth middleware en el diff",
+            "Sin señales claras de auth middleware en el diff",
         )
 
     def _val(texto: str, path: str) -> bool:
@@ -868,7 +870,7 @@ def _analizar_seguridad(
             "CR-015",
             dim,
             "cumple",
-            "Senal de funcion o esquema de validacion en el diff",
+            "Señal de función o esquema de validación en el diff",
             f_v,
             fr_v,
             l_v,
@@ -877,13 +879,13 @@ def _analizar_seguridad(
         cr015 = _insuficiente(
             "CR-015",
             dim,
-            "Sin senales claras de validacion de entrada en el diff",
+            "Sin señales claras de validación de entrada en el diff",
         )
 
     cr016 = _insuficiente(
         "CR-016",
         dim,
-        "Sin senal clara de control de seguridad conectado a rutas",
+        "Sin señal clara de control de seguridad conectado a rutas",
     )
     # reutilizar auth como senal debil de conexion
     if f_au:
@@ -935,7 +937,7 @@ def _analizar_seguridad(
     cr018 = _insuficiente(
         "CR-018",
         dim,
-        "Sin senales claras de ampliacion o restriccion de permisos",
+        "Sin señales claras de ampliación o restricción de permisos",
     )
 
     return [cr013, cr014, cr015, cr016, cr017, cr018], {}
@@ -977,7 +979,7 @@ def _analizar_proporcionalidad(
         "CR-020",
         dim,
         "cumple",
-        f"Nivel heuristicamente sugerido por volumen/archivos: {suggested}",
+        f"Nivel heurísticamente sugerido por volumen/archivos: {suggested}",
         f_a,
         fr_a,
         l_a,
@@ -986,7 +988,7 @@ def _analizar_proporcionalidad(
         "CR-021",
         dim,
         "cumple",
-        f"Dificultad aproximada por umbrales simulado -> {suggested} (monto medio {suggested_amount})",
+        f"Dificultad aproximada por umbrales reglas -> {suggested} (monto medio {suggested_amount})",
         f_a,
         fr_a,
         l_a,
@@ -1075,7 +1077,7 @@ def _analizar_proporcionalidad(
     return [cr019, cr020, cr021, cr022, cr023], meta
 
 
-def analizar_simulado(
+def analizar_reglas(
     dimension: str,
     entrada: dict[str, Any],
     clasificacion: dict[str, Any],
@@ -1085,7 +1087,7 @@ def analizar_simulado(
     """Valora una dimension con heuristicas. Misma forma que analizar_dimension."""
     del previos  # disponible por compatibilidad de firma; no altera el resultado
     if dimension not in CODIGOS_POR_DIMENSION:
-        raise ValueError(f"Dimension desconocida: {dimension}")
+        raise ValueError(f"Dimensión desconocida: {dimension}")
 
     cfg = config or cargar_escala()
     ctx = entrada.get("context") or {}
@@ -1097,7 +1099,7 @@ def analizar_simulado(
     meta: dict[str, Any] = {
         "automationSignals": [],
         "tareaCorresponde": None,
-        "modelId": "simulado-v1",
+        "modelId": "reglas-v1",
         "diffCapado": False,
     }
 
@@ -1121,7 +1123,7 @@ def analizar_simulado(
     ordenados = [
         por_codigo[c]
         if c in por_codigo
-        else _insuficiente(c, dimension, "Criterio no evaluado por la heuristica")
+        else _insuficiente(c, dimension, "Criterio no evaluado por la heurística")
         for c in CODIGOS_POR_DIMENSION[dimension]
     ]
     ordenados = postvalidar_criterios(ordenados, entrada, meta)
@@ -1129,12 +1131,12 @@ def analizar_simulado(
     return ordenados, uso, meta
 
 
-def analizar_todas_simulado(
+def analizar_todas_reglas(
     entrada: dict[str, Any],
     clasificacion: dict[str, Any],
     config: ConfigEscala | None = None,
 ) -> tuple[list[dict[str, Any]], dict[str, int], dict[str, Any]]:
-    """Ejecuta las cuatro dimensiones en modo simulado."""
+    """Ejecuta las cuatro dimensiones en modo reglas."""
     cfg = config or cargar_escala()
     todos: list[dict[str, Any]] = []
     tokens = {"input_tokens": 0, "output_tokens": 0}
@@ -1145,13 +1147,13 @@ def analizar_todas_simulado(
         "suggestedAmount": None,
         "dependeInformacionExterna": False,
         "motivoDependencia": None,
-        "modelId": "simulado-v1",
+        "modelId": "reglas-v1",
         "diffCapado": False,
     }
 
     for dimension in DIMENSIONES:
         previos = todos if dimension == "proporcionalidad" else None
-        criterios, uso, m = analizar_simulado(
+        criterios, uso, m = analizar_reglas(
             dimension, entrada, clasificacion, previos=previos, config=cfg
         )
         todos.extend(criterios)

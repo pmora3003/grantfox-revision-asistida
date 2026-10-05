@@ -20,7 +20,7 @@ ANTHROPIC_API_KEY=...
 
 ## Modos de ejecucion
 
-El pipeline admite tres modos con `--modo`. `auto` es el default: usa el modelo si encuentra `ANTHROPIC_API_KEY` en el entorno o en `.env`, y si no corre el analisis simulado. `real` llama a Anthropic y falla con un error claro si falta la clave. `simulado` aplica reglas heuristicas deterministicas sobre el diff, sin red, y marca la salida con `modoEjecucion: "simulado"` y el modelo `simulado-heuristico`.
+El pipeline admite tres modos con `--modo`. `auto` es el default: usa el modelo si encuentra `ANTHROPIC_API_KEY` en el entorno o en `.env`, y si no corre el motor de reglas. `real` llama a Anthropic y falla con un error claro si falta la clave. `reglas` aplica heuristicas deterministicas sobre el diff, sin red, y marca la salida con `modoEjecucion: "reglas"` y el modelo `motor-reglas` / `reglas-v1`. El alias `--modo reglas` se acepta y se mapea a `reglas`.
 
 La clave solo vive en `.env` local o en el secreto del repositorio en GitHub Actions. Nunca va en el frontend ni en los JSON publicados.
 
@@ -38,10 +38,10 @@ Una contribución por id:
 revisar --id "HASH:0"
 ```
 
-Analisis simulado (sin clave ni llamadas al modelo):
+Analisis con motor de reglas (sin clave ni llamadas al modelo):
 
 ```bash
-revisar --todos --modo simulado
+revisar --todos --modo reglas
 ```
 
 Forzar el modelo (exige la clave):
@@ -84,13 +84,13 @@ python scripts/muestra_demo.py
 Eso escribe `data/casos-demo.jsonl` con ids `PR-01` a `PR-12` y muestra una tabla resumen en consola. Luego corro el pipeline sobre esa muestra:
 
 ```bash
-revisar --casos data/casos-demo.jsonl --todos --modo simulado
+revisar --casos data/casos-demo.jsonl --todos --modo reglas
 ```
 
 Eso vuelve a correr el analisis y escribe `web/public/datos.json`. Sobre el golden set local uso `--no-exportar` para no tocar la demo:
 
 ```bash
-revisar --casos data/golden-set.jsonl --todos --modo simulado --no-exportar --salida runs-golden
+revisar --casos data/golden-set.jsonl --todos --modo reglas --no-exportar --salida runs-golden
 ```
 
 Tambien sirve solo exportar desde `runs/`:
@@ -109,7 +109,7 @@ cd web && npm install && npm run dev
 
 ## Clave en GitHub Pages
 
-El sitio en Pages es estatico. La clave de Anthropic no viaja al navegador ni se embebe en el frontend. Quien administra el repo la guarda como secreto `ANTHROPIC_API_KEY` y el workflow de deploy corre el pipeline con ese valor. Sin el secreto, el deploy publica el analisis simulado.
+El sitio en Pages es estatico. La clave de Anthropic no viaja al navegador ni se embebe en el frontend. Quien administra el repo la guarda como secreto `ANTHROPIC_API_KEY` y el workflow de deploy corre el pipeline con ese valor. Sin el secreto, el deploy publica el analisis con motor de reglas.
 
 El dueño del repo la configura asi:
 
@@ -127,7 +127,7 @@ Leo cada registro, lo normalizo quitando campos de etiquetado, clasifico archivo
 | `clasificar` | Tipos de archivo y volumen |
 | `admisibilidad` | Condiciones CA-001 a CA-005 |
 | `analizar` | Criterios CR con el modelo |
-| `simulado` | Criterios CR con heuristicas sin modelo |
+| `reglas` | Criterios CR con motor de reglas deterministas sin modelo |
 | `agregar` | Recompensa, recomendación, confianza |
 | `registro` | Orquestación y guardado |
 | `exportar` | `web/public/datos.json` para la demo |

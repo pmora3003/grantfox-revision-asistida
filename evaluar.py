@@ -149,7 +149,9 @@ def evaluar(golden_path: Path, carpeta: Path) -> dict[str, Any]:
         es_adm = False
         if completa:
             modo = completa.get("modoEjecucion")
-            if modo in ("real", "simulado"):
+            if modo == "simulado":
+                modo = "reglas"
+            if modo in ("real", "reglas"):
                 modos_ejecucion.add(str(modo))
             banda = (completa.get("confidence") or {}).get("band") or "bajo"
             suggested = (completa.get("reward") or {}).get("suggestedLevel")
@@ -398,7 +400,7 @@ def _md(metricas: dict[str, Any]) -> str:
 
 def _modo_ejecucion_agregado(modos: list[str]) -> str:
     if not modos:
-        return "simulado"
+        return "reglas"
     if len(modos) == 1:
         return modos[0]
     return "mixto"

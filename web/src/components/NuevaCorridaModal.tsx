@@ -191,7 +191,7 @@ export function NuevaCorridaModal({ open, onClose, onCreated }: Props) {
       nombre,
       origen: 'enlaces',
       items,
-      modoEjecucion: 'simulado',
+      modoEjecucion: 'reglas',
     })
     resetLocal()
     onCreated(corrida)
@@ -278,7 +278,7 @@ export function NuevaCorridaModal({ open, onClose, onCreated }: Props) {
       nombre,
       origen: 'archivo',
       items,
-      modoEjecucion: 'simulado',
+      modoEjecucion: 'reglas',
     })
     resetLocal()
     onCreated(corrida)

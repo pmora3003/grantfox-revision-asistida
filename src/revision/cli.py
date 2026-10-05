@@ -16,6 +16,16 @@ _REPO_ROOT = Path(__file__).resolve().parents[2]
 _CASOS_DEFAULT = str(_REPO_ROOT / "data" / "golden-set.jsonl")
 
 
+def _parse_modo(valor: str) -> str:
+    if valor == "simulado":
+        return "reglas"
+    if valor not in ("auto", "real", "reglas"):
+        raise argparse.ArgumentTypeError(
+            f"modo invalido: {valor!r} (use auto, real o reglas)"
+        )
+    return valor
+
+
 def _id_corto(contribution_id: str) -> str:
     if ":" in contribution_id:
         base, _, suf = contribution_id.partition(":")
@@ -54,11 +64,13 @@ def main(argv: list[str] | None = None) -> None:
     )
     parser.add_argument(
         "--modo",
-        choices=["auto", "real", "simulado"],
+        type=_parse_modo,
         default="auto",
+        metavar="{auto,real,reglas}",
         help=(
-            "Modo de analisis: auto (real si hay ANTHROPIC_API_KEY, si no simulado), "
-            "real (requiere clave) o simulado (heuristicas sin modelo)"
+            "Modo de analisis: auto (real si hay ANTHROPIC_API_KEY, si no reglas), "
+            "real (requiere clave) o reglas (motor determinista sin modelo). "
+            "El alias 'simulado' se acepta y se mapea a reglas."
         ),
     )
     parser.add_argument(

@@ -472,7 +472,7 @@ export function RecorridoGuiado({
                   <span className={`modo-pill modo-pill-${metricas.modoEjecucion}`}>
                     {metricas.modoEjecucion}
                   </span>
-                  {metricas.modoEjecucion === 'simulado' && (
+                  {metricas.modoEjecucion === 'reglas' && (
                     <>
                       . Las cifras de análisis de contenido provienen de la simulación heurística; la
                       corrida con modelo de lenguaje está pendiente.

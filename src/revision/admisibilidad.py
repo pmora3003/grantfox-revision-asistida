@@ -7,6 +7,8 @@ from typing import Any
 
 from revision.config import ConfigAdmisibilidad
 
+from revision.marcos import anotar_condiciones
+
 # Palabras que habilitan un #N suelto como referencia a tarea.
 _PREFIJO_ISSUE_RE = re.compile(
     r"(?i)\b(?:issue|tarea|closes?|fixes?|resolves?|refs?|related)\b",
@@ -93,7 +95,7 @@ def _ca005() -> dict[str, str]:
     return {
         "code": "CA-005",
         "result": "no_verificable",
-        "observed": "Se verifica en la plataforma, no esta en el insumo",
+        "observed": "Se verifica en la plataforma, no está en el insumo",
     }
 
 
@@ -128,5 +130,5 @@ def evaluar_admisibilidad(
         "outcome": outcome,
         "stoppedAt": stopped_at,
         "version": config.version,
-        "conditions": condiciones,
+        "conditions": anotar_condiciones(condiciones),
     }

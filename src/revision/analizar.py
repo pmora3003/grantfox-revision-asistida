@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from revision.config import ConfigEscala, cargar_escala, umbral_spike
+from revision.marcos import anotar_criterio
 from revision.normalizar import anonimizar_texto
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -177,15 +178,17 @@ def sanitizar_texto_modelo(texto: str | None) -> str | None:
 
 
 def _criterio_vacio(codigo: str, dimension: str, evidencia: str) -> dict[str, Any]:
-    return {
-        "code": codigo,
-        "dimension": dimension,
-        "level": "evidencia_insuficiente",
-        "evidence": evidencia,
-        "file": None,
-        "fragment": None,
-        "line": None,
-    }
+    return anotar_criterio(
+        {
+            "code": codigo,
+            "dimension": dimension,
+            "level": "evidencia_insuficiente",
+            "evidence": evidencia,
+            "file": None,
+            "fragment": None,
+            "line": None,
+        }
+    )
 
 
 def criterios_insuficientes(evidencia: str) -> list[dict[str, Any]]:
@@ -422,17 +425,19 @@ def _normalizar_criterios(
         fragment = item.get("fragment")
         if isinstance(fragment, str) and len(fragment) > 300:
             fragment = fragment[:300]
-        por_codigo[codigo] = {
-            "code": codigo,
-            "dimension": dimension,
-            "level": level,
-            "evidence": sanitizar_texto_modelo(str(item.get("evidence") or "")) or "",
-            "file": item.get("file"),
-            "fragment": sanitizar_texto_modelo(
-                fragment if isinstance(fragment, str) else None
-            ),
-            "line": _normalizar_linea(item.get("line")),
-        }
+        por_codigo[codigo] = anotar_criterio(
+            {
+                "code": codigo,
+                "dimension": dimension,
+                "level": level,
+                "evidence": sanitizar_texto_modelo(str(item.get("evidence") or "")) or "",
+                "file": item.get("file"),
+                "fragment": sanitizar_texto_modelo(
+                    fragment if isinstance(fragment, str) else None
+                ),
+                "line": _normalizar_linea(item.get("line")),
+            }
+        )
 
     salida: list[dict[str, Any]] = []
     for codigo in CODIGOS_POR_DIMENSION[dimension]:

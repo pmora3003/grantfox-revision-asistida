@@ -32,6 +32,12 @@ import { DiffView } from './DiffView'
 import { LevelBadge } from './LevelBadge'
 import { RecommendationChip } from './RecommendationChip'
 import {
+  FuenteCell,
+  FundamentosList,
+  MarcoLine,
+  RecommendationJustification,
+} from './RecommendationDetails'
+import {
   bandLabel,
   caResultLabel,
   dimensionTitle,
@@ -42,7 +48,7 @@ import {
   supervisionLabel,
   supervisionScopeLabel,
 } from '../labels'
-import { etiquetaModoCaso, modoDeSalida } from '../modoEjecucion'
+import { modoDeSalida } from '../modoEjecucion'
 
 const STORAGE_KEY = 'grantfox-revision-decisions'
 
@@ -406,6 +412,7 @@ function AdmisibilidadPanel({ caso }: { caso: CasoRevision }) {
             <th>Código</th>
             <th>Resultado</th>
             <th>Observado</th>
+            <th>Fuente</th>
           </tr>
         </thead>
         <tbody>
@@ -416,6 +423,9 @@ function AdmisibilidadPanel({ caso }: { caso: CasoRevision }) {
                 {caIcon(c.result)} {caResultLabel(c.result)}
               </td>
               <td>{c.observed}</td>
+              <td>
+                <FuenteCell fuente={c.fuente} fuenteUrl={c.fuenteUrl} />
+              </td>
             </tr>
           ))}
         </tbody>
@@ -512,7 +522,6 @@ function DimensionPanel({
   )
   const counts = countLevels(criteria)
   const dimInfo = salida.dimensions.find((d) => d.dimension === dimension)
-  const simulado = modoDeSalida(salida) === 'simulado'
   const hasIssues = counts.parcial + counts.sinEvidencia + counts.noCumplen > 0
 
   return (
@@ -521,11 +530,6 @@ function DimensionPanel({
         {counts.cumplen} cumplen, {counts.parcial} parcial, {counts.sinEvidencia} sin evidencia
         {counts.noCumplen > 0 ? `, ${counts.noCumplen} no cumplen` : ''}
       </Verdict>
-      {simulado && (
-        <p className="simulado-analysis-note">
-          Estas valoraciones salen de reglas heurísticas, no del modelo de lenguaje.
-        </p>
-      )}
       {dimInfo && <p className="dim-assessment">{dimInfo.assessment}</p>}
 
       <div className="criteria-strip" aria-label={`Criterios de ${dimensionTitle(dimension)}`}>
@@ -553,6 +557,7 @@ function DimensionPanel({
               )}
             </div>
             <p>{c.evidence}</p>
+            {c.marco && <MarcoLine marco={c.marco} url={c.marcoUrl} />}
             {c.fragment && (
               <details className="fragment-collapse">
                 <summary>Ver fragmento</summary>
@@ -599,7 +604,8 @@ function AgregacionPanel({ caso }: { caso: CasoRevision }) {
         <p>
           <RecommendationChip value={salida.recommendation.value} />
         </p>
-        <p>{salida.recommendation.justification}</p>
+        <RecommendationJustification text={salida.recommendation.justification} />
+        <FundamentosList salida={salida} />
         {salida.recommendation.supportingCriteria.length > 0 && (
           <p className="muted">
             Criterios de apoyo: {salida.recommendation.supportingCriteria.join(', ')}
@@ -660,11 +666,15 @@ function AgregacionPanel({ caso }: { caso: CasoRevision }) {
 function RegistroPanel({ caso }: { caso: CasoRevision }) {
   const { salida } = caso
   const modo = modoDeSalida(salida)
+  const motorLabel =
+    modo === 'real'
+      ? `Motor: ${salida.model.version}`
+      : 'Motor: reglas deterministas v1'
   return (
     <div className="step-body">
-      <Verdict ok={modo === 'real' ? true : 'warn'}>{etiquetaModoCaso(salida)}</Verdict>
+      <Verdict ok={modo === 'real' ? true : 'warn'}>{motorLabel}</Verdict>
       <p className={`modo-caso-indicator modo-caso-${modo}`} role="status">
-        {etiquetaModoCaso(salida)}
+        {motorLabel}
       </p>
       <dl className="meta-grid">
         <div>

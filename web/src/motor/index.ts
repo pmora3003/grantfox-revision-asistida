@@ -12,7 +12,7 @@ import {
   instructionVersion,
 } from './config.generada.ts'
 import { normalizarRegistro } from './normalizar.ts'
-import { analizarTodasSimulado } from './simulado.ts'
+import { analizarTodasReglas } from './reglas.ts'
 
 export { normalizarRegistro } from './normalizar.ts'
 export { entradaDesdePR } from './github.ts'
@@ -65,7 +65,7 @@ export interface ProcesarOpciones {
   ahora?: Date
 }
 
-/** Pipeline simulado: misma forma que Python escribe en seccion 9. */
+/** Pipeline de reglas: misma forma que Python escribe en seccion 9. */
 export async function procesarEntrada(
   registro: unknown,
   opciones?: ProcesarOpciones,
@@ -89,7 +89,7 @@ export async function procesarEntrada(
     dependeInformacionExterna: false,
     motivoDependencia: null,
     diffCapado: diffEstaCapado(entrada),
-    modoEjecucion: 'simulado',
+    modoEjecucion: 'reglas',
   }
 
   if (admissibility.outcome === 'no_admisible') {
@@ -97,13 +97,13 @@ export async function procesarEntrada(
       `Analisis detenido por admisibilidad (${admissibility.stoppedAt})`,
     )
   } else {
-    const [criteriosSim, , metaModelo] = analizarTodasSimulado(
+    const [criteriosSim, , metaModelo] = analizarTodasReglas(
       entrada,
       clasificacion,
     )
     criterios = criteriosSim
     Object.assign(meta, metaModelo)
-    meta.modoEjecucion = 'simulado'
+    meta.modoEjecucion = 'reglas'
   }
 
   const agregado = agregar(
@@ -113,6 +113,7 @@ export async function procesarEntrada(
     entrada,
     meta,
   )
+  criterios = agregado.criteria || criterios
 
   const durationMs = Math.trunc(performance.now() - inicio)
   const executedAt = formatearExecutedAt(opciones?.ahora ?? new Date())
@@ -122,10 +123,10 @@ export async function procesarEntrada(
   return {
     contributionId: String(entrada.id || (registro as { id?: string })?.id || ''),
     executedAt,
-    model: { name: 'simulado-heuristico', version: 'simulado-v1' },
+    model: { name: 'motor-reglas', version: 'reglas-v1' },
     instructionVersion,
     headSha: headSha ?? null,
-    modoEjecucion: 'simulado',
+    modoEjecucion: 'reglas',
     admissibility: {
       outcome: admissibility.outcome,
       stoppedAt: admissibility.stoppedAt,

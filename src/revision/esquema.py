@@ -50,6 +50,8 @@ class CondicionAdmisibilidad(BaseModel):
     code: str
     result: ResultadoCA
     observed: str
+    fuente: str = ""
+    fuenteUrl: str | None = None
 
 
 class Admisibilidad(BaseModel):
@@ -105,6 +107,8 @@ class Criterio(BaseModel):
     file: str | None = None
     fragment: str | None = None
     line: int | None = None
+    marco: str = ""
+    marcoUrl: str | None = None
 
 
 class DimensionValoracion(BaseModel):
@@ -125,12 +129,22 @@ class Reward(BaseModel):
     levelMismatch: bool
 
 
+class Fundamento(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    code: str
+    nivel: str
+    marco: str
+    evidencia: str
+
+
 class Recommendation(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     value: RecomendacionValor
     supportingCriteria: list[str] = Field(default_factory=list)
     justification: str
+    fundamentos: list[Fundamento] = Field(default_factory=list)
 
 
 class Confidence(BaseModel):
@@ -160,7 +174,7 @@ class Execution(BaseModel):
     entradaHash: str
 
 
-ModoEjecucion = Literal["real", "simulado"]
+ModoEjecucion = Literal["real", "reglas"]
 
 
 class Salida(BaseModel):

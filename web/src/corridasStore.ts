@@ -101,10 +101,10 @@ export function buildDemoCorrida(casos: CasoRevision[], progress?: DemoProgress)
       etapaAlcanzada: p.itemEtapas[c.entrada.id] ?? (p.etapaActual > 0 ? p.etapaActual : 0),
     }))
 
-  const modos = items.map((i) => (i.salida ? modoDeSalida(i.salida) : 'simulado'))
+  const modos = items.map((i) => (i.salida ? modoDeSalida(i.salida) : 'reglas'))
   const modoEjecucion: ModoEjecucionSalida = modos.every((m) => m === 'real')
     ? 'real'
-    : 'simulado'
+    : 'reglas'
 
   return {
     id: DEMO_CORRIDA_ID,
@@ -164,7 +164,7 @@ export function createUserCorrida(opts: {
     nombre: opts.nombre.trim() || defaultCorridaNombre(),
     creadaEn: new Date().toISOString(),
     origen: opts.origen,
-    modoEjecucion: opts.modoEjecucion ?? 'simulado',
+    modoEjecucion: opts.modoEjecucion ?? 'reglas',
     items: opts.items.map((i) => ({
       ...i,
       etapaAlcanzada: 0,

@@ -72,16 +72,6 @@ export function InicioView({
               <div className="corrida-card-main">
                 <div className="corrida-card-title-row">
                   <h3>{c.nombre}</h3>
-                  <span
-                    className={`modo-pill modo-pill-${c.modoEjecucion}`}
-                    title={
-                      c.modoEjecucion === 'real'
-                        ? 'Análisis con modelo de lenguaje'
-                        : 'Análisis simulado'
-                    }
-                  >
-                    {c.modoEjecucion === 'real' ? 'Real' : 'Simulado'}
-                  </span>
                 </div>
                 <p className="corrida-card-meta muted">
                   {formatFechaCorta(c.creadaEn)}, {origenLabel(c.origen)}, {n} PR

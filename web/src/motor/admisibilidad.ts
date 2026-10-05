@@ -1,5 +1,9 @@
 import type { Admisibilidad, CondicionAdmisibilidad, Entrada, FileClassification } from '../types.ts'
-import { admisibilidad as cfgAdm, parametrosCa } from './config.generada.ts'
+import {
+  admisibilidad as cfgAdm,
+  fuenteDeCondicion,
+  parametrosCa,
+} from './config.generada.ts'
 
 const PREFIJO_ISSUE_RE =
   /\b(?:issue|tarea|closes?|fixes?|resolves?|refs?|related)\b/i
@@ -18,6 +22,15 @@ function pyRepr(valor: unknown): string {
     return `'${valor.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}'`
   }
   return String(valor)
+}
+
+function anotarCondicion(c: CondicionAdmisibilidad): CondicionAdmisibilidad {
+  const fuente = fuenteDeCondicion(c.code)
+  return {
+    ...c,
+    fuente: fuente.marco,
+    fuenteUrl: fuente.url,
+  }
 }
 
 function evaluarCa001(contexto: Record<string, unknown>): CondicionAdmisibilidad {
@@ -92,7 +105,7 @@ function ca005(): CondicionAdmisibilidad {
   return {
     code: 'CA-005',
     result: 'no_verificable',
-    observed: 'Se verifica en la plataforma, no esta en el insumo',
+    observed: 'Se verifica en la plataforma, no está en el insumo',
   }
 }
 
@@ -113,14 +126,14 @@ export function evaluarAdmisibilidad(
 
   for (const codigo of ORDEN_CA) {
     const resultado = evaluadores[codigo]!()
-    condiciones.push(resultado)
+    condiciones.push(anotarCondicion(resultado))
     if (resultado.result === 'no_cumple') {
       stoppedAt = codigo
       break
     }
   }
 
-  condiciones.push(ca005())
+  condiciones.push(anotarCondicion(ca005()))
 
   return {
     outcome: stoppedAt ? 'no_admisible' : 'admisible',

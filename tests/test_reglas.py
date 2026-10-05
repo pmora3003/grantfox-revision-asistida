@@ -1,4 +1,4 @@
-"""Pruebas del modo simulado sobre data/casos-prueba.jsonl (sin API)."""
+"""Pruebas del modo reglas sobre data/casos-prueba.jsonl (sin API)."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ from pathlib import Path
 
 from revision.normalizar import cargar_golden
 from revision.registro import revisar
-from revision.simulado import _secreto_preciso_en_linea, _ruta_excluida_secreto
+from revision.reglas import _secreto_preciso_en_linea, _ruta_excluida_secreto
 
 _REPO = Path(__file__).resolve().parents[1]
 _CASOS = _REPO / "data" / "casos-prueba.jsonl"
@@ -15,21 +15,28 @@ _FAKE_KEY = "demo_FAKE_0000000000000000000000000000"
 _STELLAR_G = "GABCDEFGHIJKLMNOPQRSTUVWXYZ234567ABCDEFGHIJKLMNOPQRSTUVW"
 
 
-def test_revisar_casos_prueba_modo_simulado(capsys):
+def test_revisar_casos_prueba_modo_reglas(capsys):
     registros = cargar_golden(_CASOS)
     assert len(registros) >= 8
     por_id = {r["id"]: r for r in registros}
 
     salidas: dict[str, dict] = {}
     for registro in registros:
-        salida = revisar(registro, modo="simulado")
+        salida = revisar(registro, modo="reglas")
         salida.pop("_tokens", None)
         salidas[salida["contributionId"]] = salida
 
         assert len(salida["criteria"]) == 23
-        assert salida["modoEjecucion"] == "simulado"
-        assert salida["model"]["name"] == "simulado-heuristico"
-        assert salida["model"]["version"] == "simulado-v1"
+        assert salida["modoEjecucion"] == "reglas"
+        assert salida["model"]["name"] == "motor-reglas"
+        assert salida["model"]["version"] == "reglas-v1"
+        for c in salida["criteria"]:
+            assert "marco" in c
+            assert "marcoUrl" in c
+        for cond in salida["admissibility"]["conditions"]:
+            assert "fuente" in cond
+            assert "fuenteUrl" in cond
+        assert "fundamentos" in salida["recommendation"]
 
     demo05 = salidas["DEMO-05"]
     cr013 = next(c for c in demo05["criteria"] if c["code"] == "CR-013")
@@ -45,7 +52,6 @@ def test_revisar_casos_prueba_modo_simulado(capsys):
     assert salidas["DEMO-08"]["admissibility"]["stoppedAt"] == "CA-002"
     assert salidas["DEMO-02"]["recommendation"]["value"] != "rechazar"
 
-    # Tabla informativa: recomendacion vs etiqueta (no se aserta igualdad total)
     print("")
     print(f"{'caso':<10} {'obtenido':<28} {'esperado':<28}")
     for cid in sorted(salidas):
@@ -57,6 +63,13 @@ def test_revisar_casos_prueba_modo_simulado(capsys):
     captured = capsys.readouterr()
     assert "DEMO-01" in captured.out
     assert "esperado" in captured.out
+
+
+def test_alias_simulado_mapea_a_reglas():
+    registros = cargar_golden(_CASOS)
+    salida = revisar(registros[0], modo="simulado")
+    assert salida["modoEjecucion"] == "reglas"
+    assert salida["model"]["name"] == "motor-reglas"
 
 
 def test_cr013_no_dispara_por_clave_publica_ni_token_en_pruebas():

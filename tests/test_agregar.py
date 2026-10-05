@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from revision.agregar import agregar, agregar_recomendacion
+from revision.agregar import agregar, agregar_recomendacion, _banda_confianza
 from revision.analizar import CODIGOS_POR_DIMENSION, criterios_insuficientes
 from revision.config import cargar_escala
 from revision.esquema import Salida
@@ -297,7 +297,7 @@ def test_monto_bajo_minimo_anota_limits():
         "suggestedAmount": 20,
     }
     out = agregar(adm, {}, criterios, _entrada(requested_amount=10), meta)
-    assert any("por debajo del minimo" in lim for lim in out["limits"])
+    assert any("por debajo del mínimo" in lim for lim in out["limits"])
 
 
 def test_supervision_scope_por_banda():
@@ -327,3 +327,11 @@ def test_supervision_scope_por_banda():
     assert out_bajo["confidence"]["band"] == "bajo"
     assert out_bajo["confidence"]["supervision"] == "revision_detallada"
     assert out_bajo["confidence"]["supervisionScope"] == "analisis_completo"
+
+
+def test_bandas_confianza_limites():
+    conf = cargar_escala().confianza
+    assert _banda_confianza(0.86, conf) == "alto"
+    assert _banda_confianza(0.85, conf) == "medio"
+    assert _banda_confianza(0.60, conf) == "medio"
+    assert _banda_confianza(0.59, conf) == "bajo"

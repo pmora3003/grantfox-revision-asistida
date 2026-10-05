@@ -19,17 +19,17 @@ niveles:
 techo_observado: 150
 
 confianza:
-  alto: 0.90
-  medio: 0.70
+  alto_mayor_que: 0.85
+  medio_desde: 0.60
   penalizaciones:
     truncado: 0.25
     tarea_no_corresponde: 0.25
     evidencia_insuficiente_excesiva: 0.20
     dependencia_externa: 0.40
-    simulado: 0.15
+    reglas: 0.15
   umbral_evidencia_insuficiente: 0.30
 
-simulado:
+reglas:
   lineas_medio: 150
   lineas_alto: 400
   lineas_spike: 900

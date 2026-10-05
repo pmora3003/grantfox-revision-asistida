@@ -46,7 +46,7 @@ def test_exportar_web_rechaza_golden_set(tmp_path, capsys):
 def test_exportar_web_casos_prueba(tmp_path):
     registros = cargar_golden(_CASOS_PRUEBA)
     registro = registros[0]
-    salida = revisar(registro, modo="simulado")
+    salida = revisar(registro, modo="reglas")
     guardar(salida, carpeta=tmp_path)
 
     dest = tmp_path / "out.json"
@@ -79,7 +79,7 @@ def test_cli_no_exportar_golden(tmp_path, capsys):
             "--id",
             str(cargar_golden(golden)[0]["id"]),
             "--modo",
-            "simulado",
+            "reglas",
             "--no-exportar",
             "--salida",
             str(salida_dir),

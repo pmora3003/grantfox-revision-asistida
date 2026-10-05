@@ -24,12 +24,13 @@ from revision.analizar import (
 from revision.clasificar import clasificar_entrega
 from revision.config import cargar_admisibilidad, cargar_escala
 from revision.esquema import Salida
+from revision.marcos import normalizar_modo_ejecucion
 from revision.normalizar import normalizar
-from revision.simulado import analizar_todas_simulado
+from revision.reglas import analizar_todas_reglas
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 
-Modo = Literal["auto", "real", "simulado"]
+Modo = Literal["auto", "real", "reglas", "simulado"]
 
 
 def _id_seguro(contribution_id: str) -> str:
@@ -42,12 +43,17 @@ def os_environ_key() -> str | None:
     return os.environ.get("ANTHROPIC_API_KEY")
 
 
-def resolver_modo(modo: Modo = "auto") -> Literal["real", "simulado"]:
-    """auto = real si hay ANTHROPIC_API_KEY (env o .env), si no simulado."""
-    if modo not in ("auto", "real", "simulado"):
-        raise ValueError(f"modo invalido: {modo}")
+def resolver_modo(modo: Modo = "auto") -> Literal["real", "reglas"]:
+    """auto = real si hay ANTHROPIC_API_KEY (env o .env), si no reglas.
+
+    'simulado' se acepta como alias legado de 'reglas'.
+    """
     if modo == "simulado":
-        return "simulado"
+        modo = "reglas"
+    if modo not in ("auto", "real", "reglas"):
+        raise ValueError(f"modo invalido: {modo}")
+    if modo == "reglas":
+        return "reglas"
     cargar_dotenv()
     tiene_clave = bool(os_environ_key())
     if modo == "real":
@@ -56,8 +62,7 @@ def resolver_modo(modo: Modo = "auto") -> Literal["real", "simulado"]:
                 "Modo real requiere ANTHROPIC_API_KEY en el entorno o en .env"
             )
         return "real"
-    # auto
-    return "real" if tiene_clave else "simulado"
+    return "real" if tiene_clave else "reglas"
 
 
 def _cliente_anthropic() -> Any:
@@ -88,8 +93,8 @@ def revisar(
 ) -> dict[str, Any]:
     """Pipeline completo: normalizar, clasificar, admisibilidad, analisis, agregar.
 
-    modo: auto|real|simulado. sin_modelo conserva el atajo de todos los criterios
-    en evidencia_insuficiente (pruebas internas); el CLI usa --modo.
+    modo: auto|real|reglas (simulado es alias de reglas). sin_modelo conserva el
+    atajo de todos los criterios en evidencia_insuficiente (pruebas internas).
     """
     inicio = time.perf_counter()
     cfg_escala = cargar_escala()
@@ -99,7 +104,7 @@ def revisar(
     instruction_hash = _hash_sha256_hex(instruction_text)
 
     if sin_modelo:
-        modo_efectivo: Literal["real", "simulado"] = "simulado"
+        modo_efectivo: Literal["real", "reglas"] = "reglas"
     else:
         modo_efectivo = resolver_modo(modo)
 
@@ -131,21 +136,21 @@ def revisar(
         criterios = criterios_insuficientes(
             f"Analisis detenido por admisibilidad ({admissibility.get('stoppedAt')})"
         )
-        if modo_efectivo == "simulado":
-            model_name = "simulado-heuristico"
-            model_version = "simulado-v1"
+        if modo_efectivo == "reglas":
+            model_name = "motor-reglas"
+            model_version = "reglas-v1"
     elif sin_modelo:
         criterios = criterios_insuficientes("Ejecucion sin modelo")
-        model_name = "simulado-heuristico"
-        model_version = "simulado-v1"
-    elif modo_efectivo == "simulado":
-        criterios, tokens, meta_modelo = analizar_todas_simulado(
+        model_name = "motor-reglas"
+        model_version = "reglas-v1"
+    elif modo_efectivo == "reglas":
+        criterios, tokens, meta_modelo = analizar_todas_reglas(
             entrada, clasificacion, cfg_escala
         )
         meta.update(meta_modelo)
-        meta["modoEjecucion"] = "simulado"
-        model_name = "simulado-heuristico"
-        model_version = "simulado-v1"
+        meta["modoEjecucion"] = "reglas"
+        model_name = "motor-reglas"
+        model_version = "reglas-v1"
     else:
         cli = cliente or _cliente_anthropic()
         criterios, tokens, meta_modelo = analizar_todas(
@@ -158,6 +163,7 @@ def revisar(
     agregado = agregar(
         admissibility, clasificacion, criterios, entrada, meta, cfg_escala
     )
+    criterios = agregado.get("criteria") or criterios
 
     duration_ms = int((time.perf_counter() - inicio) * 1000)
     executed_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -170,6 +176,7 @@ def revisar(
     }
 
     truncated_input = bool(ctx.get("truncated")) or bool(meta.get("diffCapado"))
+    modo_salida = normalizar_modo_ejecucion(modo_efectivo) or modo_efectivo
 
     salida_dict: dict[str, Any] = {
         "contributionId": str(entrada.get("id") or registro_crudo.get("id") or ""),
@@ -177,7 +184,7 @@ def revisar(
         "model": {"name": model_name, "version": model_version},
         "instructionVersion": instruccion,
         "headSha": head_sha,
-        "modoEjecucion": modo_efectivo,
+        "modoEjecucion": modo_salida,
         "admissibility": {
             "outcome": admissibility["outcome"],
             "stoppedAt": admissibility.get("stoppedAt"),
@@ -201,7 +208,6 @@ def revisar(
         },
     }
 
-    # Validar contrato; tokens se anotan aparte para el registro jsonl
     validada = Salida.model_validate(salida_dict)
     resultado = validada.model_dump(mode="json")
     resultado["_tokens"] = tokens

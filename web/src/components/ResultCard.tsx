@@ -8,6 +8,7 @@ import {
   supervisionLabel,
   supervisionScopeLabel,
 } from '../labels'
+import { FundamentosList, RecommendationJustification } from './RecommendationDetails'
 
 type Props = {
   salida: Salida
@@ -47,6 +48,11 @@ export function ResultCard({ salida }: Props) {
           </p>
         )}
       </div>
+
+      {salida.recommendation.justification && (
+        <RecommendationJustification text={salida.recommendation.justification} />
+      )}
+      <FundamentosList salida={salida} compact />
 
       <div className="result-card-metrics">
         <div className={`confidence-big band-${conf.band}`}>

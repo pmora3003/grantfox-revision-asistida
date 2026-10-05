@@ -65,6 +65,8 @@ export interface CondicionAdmisibilidad {
   code: string
   result: ResultadoCA
   observed: string
+  fuente?: string
+  fuenteUrl?: string | null
 }
 
 export interface Admisibilidad {
@@ -108,6 +110,8 @@ export interface Criterio {
   file?: string | null
   fragment?: string | null
   line?: number | null
+  marco?: string
+  marcoUrl?: string | null
 }
 
 export interface DimensionValoracion {
@@ -124,10 +128,18 @@ export interface Reward {
   levelMismatch: boolean
 }
 
+export interface Fundamento {
+  code: string
+  nivel: string
+  marco: string
+  evidencia: string
+}
+
 export interface Recommendation {
   value: RecomendacionValor
   supportingCriteria: string[]
   justification: string
+  fundamentos?: Fundamento[]
 }
 
 export interface Confidence {
@@ -151,7 +163,7 @@ export interface Execution {
   entradaHash?: string
 }
 
-export type ModoEjecucionSalida = 'real' | 'simulado'
+export type ModoEjecucionSalida = 'real' | 'reglas' | 'simulado'
 
 export interface Salida {
   contributionId: string

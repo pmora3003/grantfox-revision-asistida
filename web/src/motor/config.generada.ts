@@ -30,14 +30,14 @@ export const escala = {
     }
   ],
   "confianza": {
-    "alto": 0.9,
-    "medio": 0.7,
+    "alto_mayor_que": 0.85,
+    "medio_desde": 0.6,
     "penalizaciones": {
       "truncado": 0.25,
       "tarea_no_corresponde": 0.25,
       "evidencia_insuficiente_excesiva": 0.2,
       "dependencia_externa": 0.4,
-      "simulado": 0.15
+      "reglas": 0.15
     },
     "umbral_evidencia_insuficiente": 0.3
   },
@@ -77,7 +77,7 @@ export const escala = {
     "max_tokens": 4096
   },
   "techo_observado": 150,
-  "simulado": {
+  "reglas": {
     "lineas_medio": 150,
     "lineas_alto": 400,
     "lineas_spike": 900,
@@ -112,18 +112,18 @@ export const escala = {
     ],
     "techo_observado": 150,
     "confianza": {
-      "alto": 0.9,
-      "medio": 0.7,
+      "alto_mayor_que": 0.85,
+      "medio_desde": 0.6,
       "penalizaciones": {
         "truncado": 0.25,
         "tarea_no_corresponde": 0.25,
         "evidencia_insuficiente_excesiva": 0.2,
         "dependencia_externa": 0.4,
-        "simulado": 0.15
+        "reglas": 0.15
       },
       "umbral_evidencia_insuficiente": 0.3
     },
-    "simulado": {
+    "reglas": {
       "lineas_medio": 150,
       "lineas_alto": 400,
       "lineas_spike": 900,
@@ -228,6 +228,247 @@ export const admisibilidad = {
   }
 } as const
 
+export const marcos = {
+  "version": "1.0",
+  "fecha": "2026-10-04",
+  "condiciones": {
+    "CA-001": {
+      "marco": "GrantFox, página Rewards; regla vigente del proceso (hallazgo H01)",
+      "url": "https://docs.grantfox.xyz"
+    },
+    "CA-002": {
+      "marco": "Regla vigente de la plataforma; umbral derivado del registro examinado (hallazgo H17)",
+      "url": null
+    },
+    "CA-003": {
+      "marco": "Regla vigente de la plataforma (hallazgo H17)",
+      "url": null
+    },
+    "CA-004": {
+      "marco": "GrantFox, páginas Best Practices y Linking Your Pull Request To The Issue",
+      "url": "https://docs.grantfox.xyz"
+    },
+    "CA-005": {
+      "marco": "GrantFox, Términos y Condiciones cláusula 9.1 y página Wallets & Payments",
+      "url": "https://docs.grantfox.xyz"
+    }
+  },
+  "criterios": {
+    "CR-001": {
+      "marco": "ISO/IEC 25010:2023, adecuación funcional",
+      "url": "https://www.iso.org/standard/78176.html"
+    },
+    "CR-002": {
+      "marco": "ISO/IEC 25010:2023, adecuación funcional",
+      "url": "https://www.iso.org/standard/78176.html"
+    },
+    "CR-003": {
+      "marco": "ISO/IEC 25010:2023, adecuación funcional",
+      "url": "https://www.iso.org/standard/78176.html"
+    },
+    "CR-004": {
+      "marco": "GrantFox, página Best Practices",
+      "url": "https://docs.grantfox.xyz"
+    },
+    "CR-005": {
+      "marco": "ISO/IEC 25010:2023, adecuación funcional y compatibilidad",
+      "url": "https://www.iso.org/standard/78176.html"
+    },
+    "CR-006": {
+      "marco": "ISO/IEC 25010:2023, mantenibilidad",
+      "url": "https://www.iso.org/standard/78176.html"
+    },
+    "CR-007": {
+      "marco": "ISO/IEC 25010:2023, mantenibilidad",
+      "url": "https://www.iso.org/standard/78176.html"
+    },
+    "CR-008": {
+      "marco": "ISO/IEC 25010:2023, fiabilidad",
+      "url": "https://www.iso.org/standard/78176.html"
+    },
+    "CR-009": {
+      "marco": "ISO/IEC 25010:2023, mantenibilidad y compatibilidad; Sadowski et al. (2018)",
+      "url": "https://www.iso.org/standard/78176.html"
+    },
+    "CR-010": {
+      "marco": "ISO/IEC 25010:2023, mantenibilidad",
+      "url": "https://www.iso.org/standard/78176.html"
+    },
+    "CR-011": {
+      "marco": "Contexto de GrantFox; Afroz et al. (2026) y Stenberg (2026)",
+      "url": null
+    },
+    "CR-012": {
+      "marco": "Contexto de GrantFox; hallazgo H16 del diagnóstico, sesión GF001",
+      "url": null
+    },
+    "CR-013": {
+      "marco": "NIST SP 800-218, PW.7. ISO/IEC 25010:2023, seguridad",
+      "url": "https://doi.org/10.6028/NIST.SP.800-218"
+    },
+    "CR-014": {
+      "marco": "NIST SP 800-218, PW.7. ISO/IEC 25010:2023, seguridad",
+      "url": "https://doi.org/10.6028/NIST.SP.800-218"
+    },
+    "CR-015": {
+      "marco": "NIST SP 800-218, PW.7. ISO/IEC 25010:2023, seguridad",
+      "url": "https://doi.org/10.6028/NIST.SP.800-218"
+    },
+    "CR-016": {
+      "marco": "NIST SP 800-218, PW.7",
+      "url": "https://doi.org/10.6028/NIST.SP.800-218"
+    },
+    "CR-017": {
+      "marco": "NIST SP 800-218, PW.7",
+      "url": "https://doi.org/10.6028/NIST.SP.800-218"
+    },
+    "CR-018": {
+      "marco": "NIST SP 800-218, PW.7. ISO/IEC 25010:2023, seguridad",
+      "url": "https://doi.org/10.6028/NIST.SP.800-218"
+    },
+    "CR-019": {
+      "marco": "Contexto de GrantFox; hallazgo H27 del diagnóstico, sesión GF001",
+      "url": null
+    },
+    "CR-020": {
+      "marco": "GrantFox, página Rewards",
+      "url": "https://docs.grantfox.xyz"
+    },
+    "CR-021": {
+      "marco": "GrantFox, escala de cuatro niveles validada en la sesión GF001",
+      "url": null
+    },
+    "CR-022": {
+      "marco": "GrantFox, Términos y Condiciones cláusula 8.4",
+      "url": "https://docs.grantfox.xyz"
+    },
+    "CR-023": {
+      "marco": "GrantFox, condiciones del nivel spike precisadas en la sesión GF001",
+      "url": null
+    }
+  },
+  "raw": {
+    "version": "1.0",
+    "fecha": "2026-10-04",
+    "condiciones": {
+      "CA-001": {
+        "marco": "GrantFox, página Rewards; regla vigente del proceso (hallazgo H01)",
+        "url": "https://docs.grantfox.xyz"
+      },
+      "CA-002": {
+        "marco": "Regla vigente de la plataforma; umbral derivado del registro examinado (hallazgo H17)",
+        "url": null
+      },
+      "CA-003": {
+        "marco": "Regla vigente de la plataforma (hallazgo H17)",
+        "url": null
+      },
+      "CA-004": {
+        "marco": "GrantFox, páginas Best Practices y Linking Your Pull Request To The Issue",
+        "url": "https://docs.grantfox.xyz"
+      },
+      "CA-005": {
+        "marco": "GrantFox, Términos y Condiciones cláusula 9.1 y página Wallets & Payments",
+        "url": "https://docs.grantfox.xyz"
+      }
+    },
+    "criterios": {
+      "CR-001": {
+        "marco": "ISO/IEC 25010:2023, adecuación funcional",
+        "url": "https://www.iso.org/standard/78176.html"
+      },
+      "CR-002": {
+        "marco": "ISO/IEC 25010:2023, adecuación funcional",
+        "url": "https://www.iso.org/standard/78176.html"
+      },
+      "CR-003": {
+        "marco": "ISO/IEC 25010:2023, adecuación funcional",
+        "url": "https://www.iso.org/standard/78176.html"
+      },
+      "CR-004": {
+        "marco": "GrantFox, página Best Practices",
+        "url": "https://docs.grantfox.xyz"
+      },
+      "CR-005": {
+        "marco": "ISO/IEC 25010:2023, adecuación funcional y compatibilidad",
+        "url": "https://www.iso.org/standard/78176.html"
+      },
+      "CR-006": {
+        "marco": "ISO/IEC 25010:2023, mantenibilidad",
+        "url": "https://www.iso.org/standard/78176.html"
+      },
+      "CR-007": {
+        "marco": "ISO/IEC 25010:2023, mantenibilidad",
+        "url": "https://www.iso.org/standard/78176.html"
+      },
+      "CR-008": {
+        "marco": "ISO/IEC 25010:2023, fiabilidad",
+        "url": "https://www.iso.org/standard/78176.html"
+      },
+      "CR-009": {
+        "marco": "ISO/IEC 25010:2023, mantenibilidad y compatibilidad; Sadowski et al. (2018)",
+        "url": "https://www.iso.org/standard/78176.html"
+      },
+      "CR-010": {
+        "marco": "ISO/IEC 25010:2023, mantenibilidad",
+        "url": "https://www.iso.org/standard/78176.html"
+      },
+      "CR-011": {
+        "marco": "Contexto de GrantFox; Afroz et al. (2026) y Stenberg (2026)",
+        "url": null
+      },
+      "CR-012": {
+        "marco": "Contexto de GrantFox; hallazgo H16 del diagnóstico, sesión GF001",
+        "url": null
+      },
+      "CR-013": {
+        "marco": "NIST SP 800-218, PW.7. ISO/IEC 25010:2023, seguridad",
+        "url": "https://doi.org/10.6028/NIST.SP.800-218"
+      },
+      "CR-014": {
+        "marco": "NIST SP 800-218, PW.7. ISO/IEC 25010:2023, seguridad",
+        "url": "https://doi.org/10.6028/NIST.SP.800-218"
+      },
+      "CR-015": {
+        "marco": "NIST SP 800-218, PW.7. ISO/IEC 25010:2023, seguridad",
+        "url": "https://doi.org/10.6028/NIST.SP.800-218"
+      },
+      "CR-016": {
+        "marco": "NIST SP 800-218, PW.7",
+        "url": "https://doi.org/10.6028/NIST.SP.800-218"
+      },
+      "CR-017": {
+        "marco": "NIST SP 800-218, PW.7",
+        "url": "https://doi.org/10.6028/NIST.SP.800-218"
+      },
+      "CR-018": {
+        "marco": "NIST SP 800-218, PW.7. ISO/IEC 25010:2023, seguridad",
+        "url": "https://doi.org/10.6028/NIST.SP.800-218"
+      },
+      "CR-019": {
+        "marco": "Contexto de GrantFox; hallazgo H27 del diagnóstico, sesión GF001",
+        "url": null
+      },
+      "CR-020": {
+        "marco": "GrantFox, página Rewards",
+        "url": "https://docs.grantfox.xyz"
+      },
+      "CR-021": {
+        "marco": "GrantFox, escala de cuatro niveles validada en la sesión GF001",
+        "url": null
+      },
+      "CR-022": {
+        "marco": "GrantFox, Términos y Condiciones cláusula 8.4",
+        "url": "https://docs.grantfox.xyz"
+      },
+      "CR-023": {
+        "marco": "GrantFox, condiciones del nivel spike precisadas en la sesión GF001",
+        "url": null
+      }
+    }
+  }
+} as const
+
 export type NivelNombre = 'bajo' | 'medio' | 'alto' | 'spike'
 
 export function parametrosCa(codigo: string): Record<string, unknown> {
@@ -271,4 +512,20 @@ export function rangoNivel(nombre: string): [number, number | null] | null {
     }
   }
   return null
+}
+
+export function marcoDeCriterio(codigo: string): { marco: string; url: string | null } {
+  const entrada = (marcos.criterios as Record<string, { marco: string; url: string | null }>)[codigo]
+  return entrada || { marco: '', url: null }
+}
+
+export function fuenteDeCondicion(codigo: string): { marco: string; url: string | null } {
+  const entrada = (marcos.condiciones as Record<string, { marco: string; url: string | null }>)[codigo]
+  return entrada || { marco: '', url: null }
+}
+
+export function normalizarModoEjecucion(modo: string | null | undefined): string | null {
+  if (modo == null) return null
+  if (modo === 'simulado') return 'reglas'
+  return modo
 }

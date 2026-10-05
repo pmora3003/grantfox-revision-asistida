@@ -1,16 +1,16 @@
 {
-  "fecha": "2026-09-30",
-  "modoEjecucion": "simulado",
+  "fecha": "2026-10-04",
+  "modoEjecucion": "reglas",
   "totalCasos": 57,
   "excluidos": 9,
   "acuerdoTotal": {
-    "aciertos": 26,
+    "aciertos": 31,
     "total": 57,
-    "proporcion": 0.4561
+    "proporcion": 0.5439
   },
   "acuerdoPorClase": {
     "aprobar": {
-      "aciertos": 3,
+      "aciertos": 5,
       "total": 29
     },
     "rechazar": {
@@ -18,7 +18,7 @@
       "total": 23
     },
     "ajustar_monto": {
-      "aciertos": 1,
+      "aciertos": 4,
       "total": 5
     },
     "derivar_revision_humana": {
@@ -28,22 +28,22 @@
   },
   "matrizConfusion": {
     "aprobar": {
-      "aprobar": 3,
+      "aprobar": 5,
       "rechazar": 3,
-      "ajustar_monto": 12,
-      "derivar_revision_humana": 11
+      "ajustar_monto": 19,
+      "derivar_revision_humana": 2
     },
     "rechazar": {
-      "aprobar": 0,
+      "aprobar": 1,
       "rechazar": 22,
       "ajustar_monto": 0,
-      "derivar_revision_humana": 1
+      "derivar_revision_humana": 0
     },
     "ajustar_monto": {
       "aprobar": 0,
       "rechazar": 1,
-      "ajustar_monto": 1,
-      "derivar_revision_humana": 3
+      "ajustar_monto": 4,
+      "derivar_revision_humana": 0
     },
     "derivar_revision_humana": {
       "aprobar": 0,
@@ -57,7 +57,7 @@
     "total": 20
   },
   "contenido": {
-    "aciertos": 6,
+    "aciertos": 11,
     "total": 37
   },
   "acuerdoNivel": {
@@ -65,10 +65,10 @@
     "total": 34
   },
   "duracionMs": {
-    "mediana": 7.0,
-    "p90": 22.0,
-    "min": 2.0,
-    "max": 75.0
+    "mediana": 61.0,
+    "p90": 78.0,
+    "min": 55.0,
+    "max": 130.0
   },
   "calibracion": {
     "alto": {
@@ -76,11 +76,11 @@
       "aciertos": 20
     },
     "medio": {
-      "casos": 21,
-      "aciertos": 6
+      "casos": 35,
+      "aciertos": 11
     },
     "bajo": {
-      "casos": 16,
+      "casos": 2,
       "aciertos": 0
     }
   }

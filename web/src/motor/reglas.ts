@@ -5,11 +5,10 @@ import {
   postvalidarCriterios,
   type MetaAnalisis,
 } from './agregar.ts'
-import { escala, nivelParaMonto, rangoNivel, umbralSpikeDesdeConfig } from './config.generada.ts'
+import { escala, marcoDeCriterio, nivelParaMonto, rangoNivel, umbralSpikeDesdeConfig } from './config.generada.ts'
 import { clasificarArchivo } from './clasificar.ts'
 import { redactarSecretos, sanitizarTextoModelo } from './sanitizar.ts'
 
-const PREFIJO = '[simulado] '
 const RE_TOKEN = /[A-Za-z_][A-Za-z0-9_]{3,}/g
 const RE_AC_LINEA = /^\s*-\s+(.+)$/
 const RE_IMPORT_EXPORT =
@@ -197,7 +196,7 @@ function criterio(
   fragment: string | null = null,
   line: number | null = null,
 ): Criterio {
-  const ev = evidence.startsWith(PREFIJO) ? evidence : PREFIJO + evidence
+  const ev = evidence
   let frag = fragment
   if (typeof frag === 'string') {
     frag = redactarSecretos(frag)
@@ -211,6 +210,8 @@ function criterio(
     file,
     fragment: frag ? sanitizarTextoModelo(frag) : frag,
     line,
+    marco: marcoDeCriterio(codigo).marco,
+    marcoUrl: marcoDeCriterio(codigo).url,
   }
 }
 
@@ -249,7 +250,7 @@ function intersect(a: Set<string>, b: Set<string>): Set<string> {
 }
 
 function nivelSugerido(clasificacion: FileClassification): string {
-  const sim = (escala.simulado || {}) as Record<string, number>
+  const sim = (escala.reglas || {}) as Record<string, number>
   const vol = clasificacion.realVolume || { files: 0, additions: 0 }
   const additions = Number(vol.additions || 0)
   const files = Number(vol.files || 0)
@@ -426,7 +427,7 @@ function analizarAlcance(
     cr003 = insuficiente(
       'CR-003',
       dim,
-      'Sin solape lexical entre descripcion de tarea y el diff',
+      'Sin solape lexical entre descripción de tarea y el diff',
     )
     if (kwIssue.size && hay.size) {
       const [fileAny, fragAny, lineAny] = citar(archivos)
@@ -448,7 +449,7 @@ function analizarAlcance(
     cr002 = insuficiente(
       'CR-002',
       dim,
-      "La tarea no declara criterios de aceptacion en lineas '- ...'",
+      "La tarea no declara criterios de aceptación en líneas '- ...'",
     )
   } else {
     let hits = 0
@@ -471,13 +472,13 @@ function analizarAlcance(
     let msg: string
     if (hits === acLineas.length) {
       level = 'cumple'
-      msg = `Los ${hits} criterios de aceptacion tienen respaldo lexical en el diff`
+      msg = `Los ${hits} criterios de aceptación tienen respaldo lexical en el diff`
     } else if (hits > 0) {
       level = 'cumple_parcialmente'
-      msg = `${hits} de ${acLineas.length} criterios de aceptacion tienen respaldo en el diff`
+      msg = `${hits} de ${acLineas.length} criterios de aceptación tienen respaldo en el diff`
     } else {
       level = 'no_cumple'
-      msg = 'Ningun criterio de aceptacion tiene respaldo lexical en el diff'
+      msg = 'Ningún criterio de aceptación tiene respaldo lexical en el diff'
       primerHit = citar(archivos)
     }
     cr002 = criterio(
@@ -500,7 +501,7 @@ function analizarAlcance(
       'CR-004',
       dim,
       'cumple',
-      `Palabras del titulo aparecen en el diff (${[...titleHit].sort().slice(0, 6).join(', ')})`,
+      `Palabras del título aparecen en el diff (${[...titleHit].sort().slice(0, 6).join(', ')})`,
       fT,
       frT,
       lT,
@@ -511,13 +512,13 @@ function analizarAlcance(
       'CR-004',
       dim,
       'cumple_parcialmente',
-      'El titulo no solapa con identificadores del diff',
+      'El título no solapa con identificadores del diff',
       fT,
       frT,
       lT,
     )
   } else {
-    cr004 = insuficiente('CR-004', dim, 'Sin titulo de solicitud para comparar')
+    cr004 = insuficiente('CR-004', dim, 'Sin título de solicitud para comparar')
   }
 
   const [fI, frI, lI] = citar(archivos, (t) =>
@@ -529,7 +530,7 @@ function analizarAlcance(
       'CR-005',
       dim,
       'cumple',
-      'Aparece import/export de modulo nuevo en el diff',
+      'Aparece import/export de módulo nuevo en el diff',
       fI,
       frI,
       lI,
@@ -538,7 +539,7 @@ function analizarAlcance(
     cr005 = insuficiente(
       'CR-005',
       dim,
-      'No se observa import/export de un modulo nuevo en lineas agregadas',
+      'No se observa import/export de un módulo nuevo en líneas agregadas',
     )
   }
 
@@ -583,7 +584,7 @@ function analizarCalidad(
       'CR-006',
       dim,
       'cumple',
-      `La clasificacion reporta ${nPruebas} archivo(s) de pruebas`,
+      `La clasificación reporta ${nPruebas} archivo(s) de pruebas`,
       fP,
       frP,
       lP,
@@ -594,7 +595,7 @@ function analizarCalidad(
       'CR-006',
       dim,
       'no_cumple',
-      'No hay archivos de pruebas en la clasificacion',
+      'No hay archivos de pruebas en la clasificación',
       fAny,
       frAny,
       lAny,
@@ -670,7 +671,7 @@ function analizarCalidad(
     cr008 = insuficiente(
       'CR-008',
       dim,
-      'No se observan senales claras de manejo de error en lineas agregadas',
+      'No se observan señales claras de manejo de error en líneas agregadas',
     )
   }
 
@@ -720,7 +721,7 @@ function analizarCalidad(
       'CR-010',
       dim,
       'no_cumple',
-      `Archivos en ${areasUtiles.size} areas sin keyword compartida y el body declara varios cambios`,
+      `Archivos en ${areasUtiles.size} áreas sin keyword compartida y el body declara varios cambios`,
       fA,
       frA,
       lA,
@@ -730,7 +731,7 @@ function analizarCalidad(
       'CR-010',
       dim,
       'cumple',
-      'No se observa agrupacion de cambios no relacionados con senales de multi-cambio en el body',
+      'No se observa agrupación de cambios no relacionados con señales de multi-cambio en el body',
       fA,
       frA,
       lA,
@@ -742,23 +743,23 @@ function analizarCalidad(
   const nTodo = lineas.filter((ln) => RE_TODO.test(ln)).length
   if (nTodo >= 3) signals.push(`muchas marcas TODO/FIXME (${nTodo})`)
   if (lineas.some((ln) => RE_PLACEHOLDER.test(ln))) {
-    signals.push('texto placeholder o lorem en lineas agregadas')
+    signals.push('texto placeholder o lorem en líneas agregadas')
   }
   if (bloquesRepetidos(lineas)) {
-    signals.push('bloques de lineas identicas repetidos')
+    signals.push('bloques de líneas idénticas repetidos')
   }
 
   let level011: Criterio['level']
   let msg011: string
   if (signals.length >= 2) {
     level011 = 'no_cumple'
-    msg011 = 'Varias senales de generacion automatica sin revision'
+    msg011 = 'Varias señales de generación automática sin revisión'
   } else if (signals.length === 1) {
     level011 = 'cumple_parcialmente'
-    msg011 = `Senal aislada de automatizacion: ${signals[0]}`
+    msg011 = `Señal aislada de automatización: ${signals[0]}`
   } else {
     level011 = 'cumple'
-    msg011 = 'No se observan senales claras de generacion automatica'
+    msg011 = 'No se observan señales claras de generación automática'
   }
   let [fS, frS, lS] = citar(archivos)
   if (signals.length) {
@@ -888,7 +889,7 @@ function analizarSeguridad(
       'CR-013',
       dim,
       'no_cumple',
-      `Posible secreto en linea agregada (valor omitido) en ${secretoHit.path}:${secretoHit.line}`,
+      `Posible secreto en línea agregada (valor omitido) en ${secretoHit.path}:${secretoHit.line}`,
       secretoHit.path,
       secretoHit.fragment,
       secretoHit.line,
@@ -899,7 +900,7 @@ function analizarSeguridad(
       'CR-013',
       dim,
       'cumple',
-      'No se observan patrones de secreto en lineas agregadas',
+      'No se observan patrones de secreto en líneas agregadas',
       fA,
       frA,
       lA,
@@ -916,7 +917,7 @@ function analizarSeguridad(
       'CR-014',
       dim,
       'cumple',
-      'Senal de middleware o comprobacion de autenticacion en el diff',
+      'Señal de middleware o comprobación de autenticación en el diff',
       fAu,
       frAu,
       lAu,
@@ -925,7 +926,7 @@ function analizarSeguridad(
     cr014 = insuficiente(
       'CR-014',
       dim,
-      'Sin senales claras de auth middleware en el diff',
+      'Sin señales claras de auth middleware en el diff',
     )
   }
 
@@ -939,7 +940,7 @@ function analizarSeguridad(
       'CR-015',
       dim,
       'cumple',
-      'Senal de funcion o esquema de validacion en el diff',
+      'Señal de función o esquema de validación en el diff',
       fV,
       frV,
       lV,
@@ -948,14 +949,14 @@ function analizarSeguridad(
     cr015 = insuficiente(
       'CR-015',
       dim,
-      'Sin senales claras de validacion de entrada en el diff',
+      'Sin señales claras de validación de entrada en el diff',
     )
   }
 
   let cr016 = insuficiente(
     'CR-016',
     dim,
-    'Sin senal clara de control de seguridad conectado a rutas',
+    'Sin señal clara de control de seguridad conectado a rutas',
   )
   if (fAu) {
     cr016 = criterio(
@@ -1015,7 +1016,7 @@ function analizarSeguridad(
   const cr018 = insuficiente(
     'CR-018',
     dim,
-    'Sin senales claras de ampliacion o restriccion de permisos',
+    'Sin señales claras de ampliación o restricción de permisos',
   )
 
   return [[cr013, cr014, cr015, cr016, cr017, cr018], {}]
@@ -1058,7 +1059,7 @@ function analizarProporcionalidad(
     'CR-020',
     dim,
     'cumple',
-    `Nivel heuristicamente sugerido por volumen/archivos: ${suggested}`,
+    `Nivel heurísticamente sugerido por volumen/archivos: ${suggested}`,
     fA,
     frA,
     lA,
@@ -1067,7 +1068,7 @@ function analizarProporcionalidad(
     'CR-021',
     dim,
     'cumple',
-    `Dificultad aproximada por umbrales simulado -> ${suggested} (monto medio ${suggestedAmount})`,
+    `Dificultad aproximada por umbrales reglas -> ${suggested} (monto medio ${suggestedAmount})`,
     fA,
     frA,
     lA,
@@ -1160,13 +1161,13 @@ function analizarProporcionalidad(
   return [[cr019, cr020, cr021, cr022, cr023], meta]
 }
 
-export function analizarSimulado(
+export function analizarReglas(
   dimension: DimensionNombre,
   entrada: Entrada,
   clasificacion: FileClassification,
 ): [Criterio[], { input_tokens: number; output_tokens: number }, MetaAnalisis] {
   if (!(dimension in CODIGOS_POR_DIMENSION)) {
-    throw new Error(`Dimension desconocida: ${dimension}`)
+    throw new Error(`Dimensión desconocida: ${dimension}`)
   }
 
   const ctx = entrada.context || {}
@@ -1177,7 +1178,7 @@ export function analizarSimulado(
   const meta: MetaAnalisis = {
     automationSignals: [],
     tareaCorresponde: null,
-    modelId: 'simulado-v1',
+    modelId: 'reglas-v1',
     diffCapado: false,
     dependeInformacionExterna: false,
     motivoDependencia: null,
@@ -1211,13 +1212,13 @@ export function analizarSimulado(
   let ordenados = CODIGOS_POR_DIMENSION[dimension].map(
     (c) =>
       porCodigo[c] ||
-      insuficiente(c, dimension, 'Criterio no evaluado por la heuristica'),
+      insuficiente(c, dimension, 'Criterio no evaluado por la heurística'),
   )
   ordenados = postvalidarCriterios(ordenados, entrada, meta)
   return [ordenados, { input_tokens: 0, output_tokens: 0 }, meta]
 }
 
-export function analizarTodasSimulado(
+export function analizarTodasReglas(
   entrada: Entrada,
   clasificacion: FileClassification,
 ): [Criterio[], { input_tokens: number; output_tokens: number }, MetaAnalisis] {
@@ -1230,12 +1231,12 @@ export function analizarTodasSimulado(
     suggestedAmount: null,
     dependeInformacionExterna: false,
     motivoDependencia: null,
-    modelId: 'simulado-v1',
+    modelId: 'reglas-v1',
     diffCapado: false,
   }
 
   for (const dimension of DIMENSIONES) {
-    const [criterios, uso, m] = analizarSimulado(
+    const [criterios, uso, m] = analizarReglas(
       dimension,
       entrada,
       clasificacion,

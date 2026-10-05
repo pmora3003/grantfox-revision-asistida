@@ -2,10 +2,17 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from revision.analizar import DIMENSIONES, insumo_truncado, sanitizar_texto_modelo
 from revision.config import ConfigEscala, cargar_escala, nivel_para_monto, rango_nivel
+from revision.marcos import (
+    anotar_criterios,
+    fuente_de_condicion,
+    marco_de_criterio,
+    normalizar_modo_ejecucion,
+)
 
 _NIVELES_NO_SATISFECHOS = frozenset({"no_cumple", "cumple_parcialmente"})
 _ORDEN_SEVERIDAD = {"alta": 3, "media": 2, "baja": 1}
@@ -19,6 +26,19 @@ _SUPERVISION_SCOPE = {
     "medio": "criterios_no_satisfechos",
     "bajo": "analisis_completo",
 }
+_ETIQUETA_NIVEL = {
+    "cumple": "cumple",
+    "cumple_parcialmente": "cumple parcialmente",
+    "no_cumple": "no cumple",
+    "evidencia_insuficiente": "evidencia insuficiente",
+    "no_verificable": "no verificable",
+}
+_RESUMEN_APROBAR_ORDEN: list[tuple[str, str, int]] = [
+    ("cumplimiento_alcance", "Alcance", 5),
+    ("calidad_tecnica", "calidad técnica", 7),
+    ("riesgos_seguridad", "seguridad", 6),
+    ("proporcionalidad", "proporcionalidad", 5),
+]
 
 
 def agregar_dimensiones(criterios: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -96,6 +116,22 @@ def _ratio_evidencia_insuficiente(criterios: list[dict[str, Any]]) -> float:
     return n_insuf / total
 
 
+def _banda_confianza(score: float, conf: dict[str, Any]) -> str:
+    """alto si score > alto_mayor_que; medio si score >= medio_desde; si no bajo."""
+    umbral_alto = float(conf.get("alto_mayor_que", 0.85))
+    umbral_medio = float(conf.get("medio_desde", 0.60))
+    if score > umbral_alto:
+        return "alto"
+    if score >= umbral_medio:
+        return "medio"
+    return "bajo"
+
+
+def _es_modo_reglas(meta: dict[str, Any]) -> bool:
+    modo = normalizar_modo_ejecucion(meta.get("modoEjecucion"))
+    return modo == "reglas"
+
+
 def agregar_confianza(
     admissibility: dict[str, Any],
     criterios: list[dict[str, Any]],
@@ -139,33 +175,30 @@ def agregar_confianza(
         pen = float(penalizaciones.get("evidencia_insuficiente_excesiva", 0.20))
         score -= pen
         reasons.append(
-            f"Proporcion de evidencia insuficiente ({ratio:.2f}) supera el umbral"
+            f"Proporción de evidencia insuficiente ({ratio:.2f}) supera el umbral"
         )
 
     if meta.get("dependeInformacionExterna"):
         pen = float(penalizaciones.get("dependencia_externa", 0.40))
         score -= pen
-        motivo = meta.get("motivoDependencia") or "dependencia de informacion externa"
+        motivo = meta.get("motivoDependencia") or "dependencia de información externa"
         reasons.append(str(sanitizar_texto_modelo(str(motivo)) or motivo))
 
-    if meta.get("modoEjecucion") == "simulado":
-        pen = float(penalizaciones.get("simulado", 0.15))
+    if _es_modo_reglas(meta):
+        pen = float(
+            penalizaciones.get("reglas", penalizaciones.get("simulado", 0.15))
+        )
         score -= pen
-        reasons.append("Ejecucion simulada")
+        reasons.append(
+            "Análisis con motor de reglas, sin modelo de lenguaje"
+        )
 
     for reason in meta.get("confidenceReasons") or []:
         if reason and reason not in reasons:
             reasons.append(str(reason))
 
     score = max(0.0, min(1.0, score))
-    umbral_alto = float(conf.get("alto", 0.90))
-    umbral_medio = float(conf.get("medio", 0.70))
-    if score >= umbral_alto:
-        band = "alto"
-    elif score >= umbral_medio:
-        band = "medio"
-    else:
-        band = "bajo"
+    band = _banda_confianza(score, conf)
 
     supervision = "confirmacion" if band == "alto" else "revision_detallada"
     return {
@@ -183,6 +216,182 @@ def _solo_razones_tarea_no_verificable(reasons: list[str]) -> bool:
     return all(r in _RAZONES_TAREA_NO_VERIFICABLE for r in reasons)
 
 
+def _evidencia_corta(texto: str, max_len: int = 200) -> str:
+    limpio = sanitizar_texto_modelo(texto) or texto
+    limpio = " ".join(str(limpio).split())
+    if len(limpio) <= max_len:
+        return limpio
+    return limpio[: max_len - 1].rstrip() + "..."
+
+
+def _fundamento_de_criterio(c: dict[str, Any]) -> dict[str, str]:
+    codigo = str(c.get("code") or "")
+    marco = str(c.get("marco") or "")
+    if not marco:
+        marco = marco_de_criterio(codigo).marco
+    nivel = str(c.get("level") or "")
+    return {
+        "code": codigo,
+        "nivel": nivel,
+        "marco": marco,
+        "evidencia": _evidencia_corta(str(c.get("evidence") or "")),
+    }
+
+
+def _fundamento_de_ca(
+    code: str, admissibility: dict[str, Any]
+) -> dict[str, str]:
+    condicion = next(
+        (
+            c
+            for c in (admissibility.get("conditions") or [])
+            if c.get("code") == code
+        ),
+        None,
+    )
+    fuente = ""
+    evidencia = ""
+    nivel = "no_cumple"
+    if condicion:
+        fuente = str(condicion.get("fuente") or "")
+        evidencia = str(condicion.get("observed") or "")
+        nivel = str(condicion.get("result") or nivel)
+    if not fuente:
+        fuente = fuente_de_condicion(code).marco
+    return {
+        "code": code,
+        "nivel": nivel,
+        "marco": fuente,
+        "evidencia": _evidencia_corta(evidencia),
+    }
+
+
+def _n_cumplen_desde_assessment(assessment: str) -> int:
+    m = re.match(r"^(\d+) cumplen", (assessment or "").strip())
+    return int(m.group(1)) if m else 0
+
+
+def _frase_criterio(c: dict[str, Any]) -> str:
+    codigo = str(c.get("code") or "")
+    nivel = _ETIQUETA_NIVEL.get(str(c.get("level") or ""), str(c.get("level") or ""))
+    marco = str(c.get("marco") or marco_de_criterio(codigo).marco)
+    evidencia = _evidencia_corta(str(c.get("evidence") or ""))
+    if marco:
+        return f"{codigo} {nivel} ({marco}): {evidencia}"
+    return f"{codigo} {nivel}: {evidencia}"
+
+
+def _justificacion_parrafo(
+    value: str,
+    codes: list[str],
+    por_codigo: dict[str, dict[str, Any]],
+    admissibility: dict[str, Any],
+    dimensions: list[dict[str, Any]] | None,
+    meta: dict[str, Any],
+    confidence: dict[str, Any],
+    reward: dict[str, Any] | None = None,
+) -> str:
+    if value == "rechazar" and admissibility.get("outcome") == "no_admisible":
+        stopped = admissibility.get("stoppedAt") or "CA"
+        fund = _fundamento_de_ca(stopped, admissibility)
+        marco = fund["marco"]
+        evidencia = fund["evidencia"]
+        if marco:
+            return (
+                f"Se recomienda rechazar. Admisibilidad no superada en {stopped} "
+                f"({marco}): {evidencia}."
+            )
+        return f"Se recomienda rechazar. Admisibilidad no superada en {stopped}: {evidencia}."
+
+    if value == "derivar_revision_humana" and meta.get("dependeInformacionExterna"):
+        motivo = meta.get("motivoDependencia") or "Depende de información externa"
+        just = sanitizar_texto_modelo(str(motivo)) or str(motivo)
+        return (
+            "Se recomienda derivar a revisión humana. "
+            "Cláusulas 4B.2 y 13.4 de los Términos y Condiciones exigen revisión "
+            f"humana previa: {just}."
+        )
+
+    if value == "derivar_revision_humana":
+        reasons = list(confidence.get("reasons") or [])
+        detalle = "; ".join(reasons) if reasons else "Confianza baja"
+        return (
+            "Se recomienda derivar a revisión humana. "
+            "Cláusulas 4B.2 y 13.4 de los Términos y Condiciones exigen revisión "
+            f"humana previa: {detalle}."
+        )
+
+    if value == "aprobar":
+        por_dim = {
+            str(d.get("dimension") or ""): d for d in (dimensions or [])
+        }
+        partes: list[str] = []
+        for idx, (dim_key, etiqueta, total) in enumerate(_RESUMEN_APROBAR_ORDEN):
+            assessment = str(por_dim.get(dim_key, {}).get("assessment") or "")
+            n_ok = _n_cumplen_desde_assessment(assessment)
+            if idx == 0:
+                partes.append(f"{etiqueta}: {n_ok} de {total} cumplen")
+            else:
+                partes.append(f"{etiqueta}: {n_ok} de {total}")
+        resumen = "; ".join(partes)
+        rw = reward or {}
+        monto = int(rw.get("requestedAmount") or 0)
+        nivel = rw.get("requestedLevel") or rw.get("suggestedLevel") or "bajo"
+        linea_reward = (
+            f"Monto solicitado {monto} USDC, nivel {nivel}, "
+            "coincide con el nivel sugerido."
+        )
+        return (
+            "Se recomienda aprobar. Ningún criterio de severidad alta queda sin cumplir. "
+            f"{resumen}. {linea_reward}"
+        )
+
+    verbos = {
+        "rechazar": "Se recomienda rechazar",
+        "ajustar_monto": "Se recomienda ajustar el monto",
+    }
+    cabecera = verbos.get(value, f"Se recomienda {value}")
+    frases = [_frase_criterio(por_codigo[c]) for c in codes if c in por_codigo]
+    if not frases:
+        return f"{cabecera}."
+    return f"{cabecera}. " + ". ".join(frases) + "."
+
+
+def _recomendacion_con_fundamentos(
+    value: str,
+    codes: list[str],
+    por_codigo: dict[str, dict[str, Any]],
+    admissibility: dict[str, Any],
+    dimensions: list[dict[str, Any]] | None,
+    meta: dict[str, Any],
+    confidence: dict[str, Any],
+    reward: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    fundamentos: list[dict[str, str]] = []
+    if admissibility.get("outcome") == "no_admisible" and codes:
+        fundamentos = [_fundamento_de_ca(codes[0], admissibility)]
+    else:
+        for code in codes:
+            c = por_codigo.get(code)
+            if c:
+                fundamentos.append(_fundamento_de_criterio(c))
+    return {
+        "value": value,
+        "supportingCriteria": codes,
+        "justification": _justificacion_parrafo(
+            value,
+            codes,
+            por_codigo,
+            admissibility,
+            dimensions,
+            meta,
+            confidence,
+            reward,
+        ),
+        "fundamentos": fundamentos,
+    }
+
+
 def agregar_recomendacion(
     admissibility: dict[str, Any],
     criterios: list[dict[str, Any]],
@@ -190,26 +399,35 @@ def agregar_recomendacion(
     confidence: dict[str, Any],
     meta: dict[str, Any],
     config: ConfigEscala | None = None,
+    dimensions: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     cfg = config or cargar_escala()
     por_codigo = {c["code"]: c for c in criterios}
 
     if admissibility.get("outcome") == "no_admisible":
         stopped = admissibility.get("stoppedAt") or "CA"
-        return {
-            "value": "rechazar",
-            "supportingCriteria": [stopped],
-            "justification": f"Admisibilidad no superada en {stopped}",
-        }
+        return _recomendacion_con_fundamentos(
+            "rechazar",
+            [stopped],
+            por_codigo,
+            admissibility,
+            dimensions,
+            meta,
+            confidence,
+            reward,
+        )
 
     if meta.get("dependeInformacionExterna"):
-        motivo = meta.get("motivoDependencia") or "Depende de informacion externa"
-        just = sanitizar_texto_modelo(str(motivo)) or str(motivo)
-        return {
-            "value": "derivar_revision_humana",
-            "supportingCriteria": [],
-            "justification": just,
-        }
+        return _recomendacion_con_fundamentos(
+            "derivar_revision_humana",
+            [],
+            por_codigo,
+            admissibility,
+            dimensions,
+            meta,
+            confidence,
+            reward,
+        )
 
     altas_no: list[str] = []
     for codigo, c in por_codigo.items():
@@ -220,12 +438,16 @@ def agregar_recomendacion(
         if cfg.severidad.get(codigo) == "alta":
             altas_no.append(codigo)
     if altas_no:
-        just = _justificacion(por_codigo, altas_no)
-        return {
-            "value": "rechazar",
-            "supportingCriteria": altas_no,
-            "justification": just,
-        }
+        return _recomendacion_con_fundamentos(
+            "rechazar",
+            altas_no,
+            por_codigo,
+            admissibility,
+            dimensions,
+            meta,
+            confidence,
+            reward,
+        )
 
     mismatch = bool(reward.get("levelMismatch"))
     umbral_insuf = float(
@@ -235,37 +457,53 @@ def agregar_recomendacion(
 
     if confidence.get("band") == "bajo":
         reasons = list(confidence.get("reasons") or [])
-        # Desajuste claro de nivel no debe quedar oculto por confianza baja
-        # solo atribuible a tarea no verificable (tareaCorresponde null).
         if (
             mismatch
             and meta.get("tareaCorresponde") is None
             and _solo_razones_tarea_no_verificable(reasons)
             and ratio_insuf < umbral_insuf
         ):
-            return _recomendacion_ajustar_monto(por_codigo, reward)
+            return _recomendacion_ajustar_monto(
+                por_codigo, reward, admissibility, dimensions, meta, confidence
+            )
 
-        return {
-            "value": "derivar_revision_humana",
-            "supportingCriteria": [],
-            "justification": "; ".join(reasons) if reasons else "Confianza baja",
-        }
+        return _recomendacion_con_fundamentos(
+            "derivar_revision_humana",
+            [],
+            por_codigo,
+            admissibility,
+            dimensions,
+            meta,
+            confidence,
+            reward,
+        )
 
     cr022 = por_codigo.get("CR-022", {})
     cr023 = por_codigo.get("CR-023", {})
     if mismatch or cr022.get("level") == "no_cumple" or cr023.get("level") == "no_cumple":
-        return _recomendacion_ajustar_monto(por_codigo, reward)
+        return _recomendacion_ajustar_monto(
+            por_codigo, reward, admissibility, dimensions, meta, confidence
+        )
 
-    return {
-        "value": "aprobar",
-        "supportingCriteria": [],
-        "justification": "Ningun criterio de rechazo o ajuste aplicable",
-    }
+    return _recomendacion_con_fundamentos(
+        "aprobar",
+        [],
+        por_codigo,
+        admissibility,
+        dimensions,
+        meta,
+        confidence,
+        reward,
+    )
 
 
 def _recomendacion_ajustar_monto(
     por_codigo: dict[str, dict[str, Any]],
     reward: dict[str, Any],
+    admissibility: dict[str, Any],
+    dimensions: list[dict[str, Any]] | None,
+    meta: dict[str, Any],
+    confidence: dict[str, Any],
 ) -> dict[str, Any]:
     mismatch = bool(reward.get("levelMismatch"))
     cr022 = por_codigo.get("CR-022", {})
@@ -275,25 +513,18 @@ def _recomendacion_ajustar_monto(
         codes.append("CR-022")
     if cr023.get("level") == "no_cumple":
         codes.append("CR-023")
-    just = (
-        _justificacion(por_codigo, codes)
-        if codes
-        else "Desajuste de nivel de monto"
+    if not codes:
+        codes = ["CR-022"]
+    return _recomendacion_con_fundamentos(
+        "ajustar_monto",
+        codes,
+        por_codigo,
+        admissibility,
+        dimensions,
+        meta,
+        confidence,
+        reward,
     )
-    return {
-        "value": "ajustar_monto",
-        "supportingCriteria": codes,
-        "justification": just,
-    }
-
-
-def _justificacion(por_codigo: dict[str, dict[str, Any]], codes: list[str]) -> str:
-    partes: list[str] = []
-    for code in codes:
-        c = por_codigo.get(code) or {}
-        ev = sanitizar_texto_modelo(str(c.get("evidence") or "")) or ""
-        partes.append(f"{code}: {ev}".strip())
-    return "; ".join(partes)
 
 
 def agregar_prioridad(
@@ -337,22 +568,22 @@ def agregar_limits(
     cfg = config or cargar_escala()
     limits = [
         "CA-005 no verificable con el insumo disponible",
-        "Contenido de los comentarios de revision no disponible",
+        "Contenido de los comentarios de revisión no disponible",
     ]
     if insumo_truncado(entrada, meta):
         limits.append("Conjunto de diferencias truncado")
     if meta.get("dependeInformacionExterna"):
-        motivo = meta.get("motivoDependencia") or "Dependencia de informacion externa"
+        motivo = meta.get("motivoDependencia") or "Dependencia de información externa"
         limits.append(str(sanitizar_texto_modelo(str(motivo)) or motivo))
     if admissibility.get("outcome") == "no_admisible":
-        stopped = admissibility.get("stoppedAt") or "condicion de admisibilidad"
+        stopped = admissibility.get("stoppedAt") or "condición de admisibilidad"
         limits.append(
-            f"Analisis detenido en {stopped}; los 23 criterios quedan en evidencia insuficiente"
+            f"Análisis detenido en {stopped}; los 23 criterios quedan en evidencia insuficiente"
         )
 
-    if meta.get("modoEjecucion") == "simulado":
+    if _es_modo_reglas(meta):
         limits.append(
-            "Analisis simulado con reglas heuristicas, no con el modelo de lenguaje"
+            "Análisis con motor de reglas deterministas; no usa el modelo de lenguaje"
         )
 
     for lim in meta.get("limits") or []:
@@ -368,7 +599,7 @@ def agregar_limits(
             monto_int = None
         if monto_int is not None and monto_int < minimo_escala:
             limits.append(
-                f"Monto solicitado ({monto_int}) por debajo del minimo de la escala "
+                f"Monto solicitado ({monto_int}) por debajo del mínimo de la escala "
                 f"({minimo_escala})"
             )
     return limits
@@ -384,13 +615,18 @@ def agregar(
 ) -> dict[str, Any]:
     """Calcula dimensiones, reward, confidence, recommendation, priority y limits."""
     cfg = config or cargar_escala()
-    meta = meta or {}
+    meta = dict(meta or {})
+    modo = normalizar_modo_ejecucion(meta.get("modoEjecucion"))
+    if modo is not None:
+        meta["modoEjecucion"] = modo
+
+    criterios = anotar_criterios(criterios)
 
     dimensions = agregar_dimensiones(criterios)
     reward = agregar_reward(entrada.get("requested_amount"), meta, cfg)
     confidence = agregar_confianza(admissibility, criterios, entrada, meta, cfg)
     recommendation = agregar_recomendacion(
-        admissibility, criterios, reward, confidence, meta, cfg
+        admissibility, criterios, reward, confidence, meta, cfg, dimensions
     )
     priority = agregar_prioridad(criterios, cfg)
     limits = agregar_limits(admissibility, entrada, meta, cfg)
@@ -407,4 +643,5 @@ def agregar(
         "priority": priority,
         "limits": limits,
         "automationSignals": signals,
+        "criteria": criterios,
     }

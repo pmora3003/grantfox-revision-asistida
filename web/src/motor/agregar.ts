@@ -5,6 +5,7 @@ import type {
   DimensionNombre,
   DimensionValoracion,
   Entrada,
+  Fundamento,
   Priority,
   Recommendation,
   Reward,
@@ -12,7 +13,10 @@ import type {
 } from '../types.ts'
 import {
   escala,
+  fuenteDeCondicion,
+  marcoDeCriterio,
   nivelParaMonto,
+  normalizarModoEjecucion,
   rangoNivel,
   type NivelNombre,
 } from './config.generada.ts'
@@ -64,6 +68,19 @@ const SUPERVISION_SCOPE: Record<string, Confidence['supervisionScope']> = {
   medio: 'criterios_no_satisfechos',
   bajo: 'analisis_completo',
 }
+const ETIQUETA_NIVEL: Record<string, string> = {
+  cumple: 'cumple',
+  cumple_parcialmente: 'cumple parcialmente',
+  no_cumple: 'no cumple',
+  evidencia_insuficiente: 'evidencia insuficiente',
+  no_verificable: 'no verificable',
+}
+const RESUMEN_APROBAR_ORDEN: [string, string, number][] = [
+  ['cumplimiento_alcance', 'Alcance', 5],
+  ['calidad_tecnica', 'calidad técnica', 7],
+  ['riesgos_seguridad', 'seguridad', 6],
+  ['proporcionalidad', 'proporcionalidad', 5],
+]
 
 export interface MetaAnalisis {
   automationSignals: string[]
@@ -90,19 +107,30 @@ export function insumoTruncado(
   return Boolean(entrada.context?.truncated) || Boolean(meta?.diffCapado)
 }
 
+function anotarCriterio(c: Criterio): Criterio {
+  const entrada = marcoDeCriterio(c.code)
+  return {
+    ...c,
+    marco: entrada.marco,
+    marcoUrl: entrada.url,
+  }
+}
+
 export function criteriosInsuficientes(evidencia: string): Criterio[] {
   const salida: Criterio[] = []
   for (const dimension of DIMENSIONES) {
     for (const codigo of CODIGOS_POR_DIMENSION[dimension]) {
-      salida.push({
-        code: codigo,
-        dimension,
-        level: 'evidencia_insuficiente',
-        evidence: evidencia,
-        file: null,
-        fragment: null,
-        line: null,
-      })
+      salida.push(
+        anotarCriterio({
+          code: codigo,
+          dimension,
+          level: 'evidencia_insuficiente',
+          evidence: evidencia,
+          file: null,
+          fragment: null,
+          line: null,
+        }),
+      )
     }
   }
   return salida
@@ -137,7 +165,7 @@ export function postvalidarCriterios(
         c.evidence = prefijo + String(ev)
       }
     }
-    salida.push(c)
+    salida.push(anotarCriterio(c))
   }
   return salida
 }
@@ -222,6 +250,21 @@ function ratioEvidenciaInsuficiente(criterios: Criterio[]): number {
   return nInsuf / total
 }
 
+function bandaConfianza(
+  score: number,
+  conf: Record<string, unknown>,
+): Confidence['band'] {
+  const umbralAlto = Number(conf.alto_mayor_que ?? 0.85)
+  const umbralMedio = Number(conf.medio_desde ?? 0.6)
+  if (score > umbralAlto) return 'alto'
+  if (score >= umbralMedio) return 'medio'
+  return 'bajo'
+}
+
+function esModoReglas(meta: Partial<MetaAnalisis>): boolean {
+  return normalizarModoEjecucion(meta.modoEjecucion ?? null) === 'reglas'
+}
+
 export function agregarConfianza(
   admissibility: Admisibilidad,
   criterios: Criterio[],
@@ -264,29 +307,24 @@ export function agregarConfianza(
   if (ratio > umbral) {
     score -= Number(penalizaciones.evidencia_insuficiente_excesiva ?? 0.2)
     reasons.push(
-      `Proporcion de evidencia insuficiente (${ratio.toFixed(2)}) supera el umbral`,
+      `Proporción de evidencia insuficiente (${ratio.toFixed(2)}) supera el umbral`,
     )
   }
 
   if (meta.dependeInformacionExterna) {
     score -= Number(penalizaciones.dependencia_externa ?? 0.4)
     const motivo =
-      meta.motivoDependencia || 'dependencia de informacion externa'
+      meta.motivoDependencia || 'dependencia de información externa'
     reasons.push(String(sanitizarTextoModelo(String(motivo)) || motivo))
   }
 
-  if (meta.modoEjecucion === 'simulado') {
-    score -= Number(penalizaciones.simulado ?? 0.15)
-    reasons.push('Ejecucion simulada')
+  if (esModoReglas(meta)) {
+    score -= Number(penalizaciones.reglas ?? penalizaciones.simulado ?? 0.15)
+    reasons.push('Análisis con motor de reglas, sin modelo de lenguaje')
   }
 
   score = Math.max(0.0, Math.min(1.0, score))
-  const umbralAlto = Number(conf.alto ?? 0.9)
-  const umbralMedio = Number(conf.medio ?? 0.7)
-  let band: Confidence['band']
-  if (score >= umbralAlto) band = 'alto'
-  else if (score >= umbralMedio) band = 'medio'
-  else band = 'bajo'
+  const band = bandaConfianza(score, conf)
 
   const supervision =
     band === 'alto' ? 'confirmacion' : 'revision_detallada'
@@ -305,22 +343,181 @@ function soloRazonesTareaNoVerificable(reasons: string[]): boolean {
   return reasons.every((r) => RAZONES_TAREA_NO_VERIFICABLE.has(r))
 }
 
-function justificacion(
-  porCodigo: Record<string, Criterio>,
-  codes: string[],
-): string {
-  const partes: string[] = []
-  for (const code of codes) {
-    const c = porCodigo[code] || ({} as Criterio)
-    const ev = sanitizarTextoModelo(String(c.evidence || '')) || ''
-    partes.push(`${code}: ${ev}`.trim())
+function evidenciaCorta(texto: string, maxLen = 200): string {
+  const limpio = (sanitizarTextoModelo(texto) || texto).replace(/\s+/g, ' ').trim()
+  if (limpio.length <= maxLen) return limpio
+  return limpio.slice(0, maxLen - 1).replace(/\s+$/, '') + '...'
+}
+
+function fundamentoDeCriterio(c: Criterio): Fundamento {
+  const marco = c.marco || marcoDeCriterio(c.code).marco
+  return {
+    code: c.code,
+    nivel: c.level,
+    marco,
+    evidencia: evidenciaCorta(c.evidence || ''),
   }
-  return partes.join('; ')
+}
+
+function fundamentoDeCa(
+  code: string,
+  admissibility: Admisibilidad,
+): Fundamento {
+  const condicion = (admissibility.conditions || []).find((c) => c.code === code)
+  let fuente = condicion?.fuente || ''
+  let evidencia = condicion?.observed || ''
+  let nivel = condicion?.result || 'no_cumple'
+  if (!fuente) fuente = fuenteDeCondicion(code).marco
+  return {
+    code,
+    nivel,
+    marco: fuente,
+    evidencia: evidenciaCorta(evidencia),
+  }
+}
+
+function nCumplenDesdeAssessment(assessment: string): number {
+  const m = /^(\d+) cumplen/.exec((assessment || '').trim())
+  return m ? Number(m[1]) : 0
+}
+
+function fraseCriterio(c: Criterio): string {
+  const nivel = ETIQUETA_NIVEL[c.level] || c.level
+  const marco = c.marco || marcoDeCriterio(c.code).marco
+  const evidencia = evidenciaCorta(c.evidence || '')
+  if (marco) return `${c.code} ${nivel} (${marco}): ${evidencia}`
+  return `${c.code} ${nivel}: ${evidencia}`
+}
+
+function justificacionParrafo(
+  value: Recommendation['value'],
+  codes: string[],
+  porCodigo: Record<string, Criterio>,
+  admissibility: Admisibilidad,
+  dimensions: DimensionValoracion[] | null | undefined,
+  meta: Partial<MetaAnalisis>,
+  confidence: Confidence,
+  reward?: Reward | null,
+): string {
+  if (value === 'rechazar' && admissibility.outcome === 'no_admisible') {
+    const stopped = admissibility.stoppedAt || 'CA'
+    const fund = fundamentoDeCa(stopped, admissibility)
+    if (fund.marco) {
+      return (
+        `Se recomienda rechazar. Admisibilidad no superada en ${stopped} ` +
+        `(${fund.marco}): ${fund.evidencia}.`
+      )
+    }
+    return (
+      `Se recomienda rechazar. Admisibilidad no superada en ${stopped}: ` +
+      `${fund.evidencia}.`
+    )
+  }
+
+  if (value === 'derivar_revision_humana' && meta.dependeInformacionExterna) {
+    const motivo =
+      meta.motivoDependencia || 'Depende de información externa'
+    const just = sanitizarTextoModelo(String(motivo)) || String(motivo)
+    return (
+      'Se recomienda derivar a revisión humana. ' +
+      'Cláusulas 4B.2 y 13.4 de los Términos y Condiciones exigen revisión ' +
+      `humana previa: ${just}.`
+    )
+  }
+
+  if (value === 'derivar_revision_humana') {
+    const reasons = [...(confidence.reasons || [])]
+    const detalle = reasons.length ? reasons.join('; ') : 'Confianza baja'
+    return (
+      'Se recomienda derivar a revisión humana. ' +
+      'Cláusulas 4B.2 y 13.4 de los Términos y Condiciones exigen revisión ' +
+      `humana previa: ${detalle}.`
+    )
+  }
+
+  if (value === 'aprobar') {
+    const porDim: Record<string, DimensionValoracion> = {}
+    for (const d of dimensions || []) {
+      porDim[d.dimension] = d
+    }
+    const partes: string[] = []
+    RESUMEN_APROBAR_ORDEN.forEach(([dimKey, etiqueta, total], idx) => {
+      const assessment = porDim[dimKey]?.assessment || ''
+      const nOk = nCumplenDesdeAssessment(assessment)
+      if (idx === 0) {
+        partes.push(`${etiqueta}: ${nOk} de ${total} cumplen`)
+      } else {
+        partes.push(`${etiqueta}: ${nOk} de ${total}`)
+      }
+    })
+    const resumen = partes.join('; ')
+    const rw = reward || ({} as Reward)
+    const monto = Math.trunc(Number(rw.requestedAmount || 0))
+    const nivel = rw.requestedLevel || rw.suggestedLevel || 'bajo'
+    const lineaReward =
+      `Monto solicitado ${monto} USDC, nivel ${nivel}, ` +
+      'coincide con el nivel sugerido.'
+    return (
+      'Se recomienda aprobar. Ningún criterio de severidad alta queda sin cumplir. ' +
+      `${resumen}. ${lineaReward}`
+    )
+  }
+
+  const verbos: Record<string, string> = {
+    rechazar: 'Se recomienda rechazar',
+    ajustar_monto: 'Se recomienda ajustar el monto',
+  }
+  const cabecera = verbos[value] || `Se recomienda ${value}`
+  const frases = codes
+    .filter((c) => porCodigo[c])
+    .map((c) => fraseCriterio(porCodigo[c]!))
+  if (!frases.length) return `${cabecera}.`
+  return `${cabecera}. ${frases.join('. ')}.`
+}
+
+function recomendacionConFundamentos(
+  value: Recommendation['value'],
+  codes: string[],
+  porCodigo: Record<string, Criterio>,
+  admissibility: Admisibilidad,
+  dimensions: DimensionValoracion[] | null | undefined,
+  meta: Partial<MetaAnalisis>,
+  confidence: Confidence,
+  reward?: Reward | null,
+): Recommendation {
+  let fundamentos: Fundamento[] = []
+  if (admissibility.outcome === 'no_admisible' && codes.length) {
+    fundamentos = [fundamentoDeCa(codes[0]!, admissibility)]
+  } else {
+    for (const code of codes) {
+      const c = porCodigo[code]
+      if (c) fundamentos.push(fundamentoDeCriterio(c))
+    }
+  }
+  return {
+    value,
+    supportingCriteria: codes,
+    justification: justificacionParrafo(
+      value,
+      codes,
+      porCodigo,
+      admissibility,
+      dimensions,
+      meta,
+      confidence,
+      reward,
+    ),
+    fundamentos,
+  }
 }
 
 function recomendacionAjustarMonto(
   porCodigo: Record<string, Criterio>,
   reward: Reward,
+  admissibility: Admisibilidad,
+  dimensions: DimensionValoracion[] | null | undefined,
+  meta: Partial<MetaAnalisis>,
+  confidence: Confidence,
 ): Recommendation {
   const mismatch = Boolean(reward.levelMismatch)
   const cr022 = porCodigo['CR-022'] || ({} as Criterio)
@@ -328,14 +525,17 @@ function recomendacionAjustarMonto(
   const codes: string[] = []
   if (mismatch || cr022.level === 'no_cumple') codes.push('CR-022')
   if (cr023.level === 'no_cumple') codes.push('CR-023')
-  const just = codes.length
-    ? justificacion(porCodigo, codes)
-    : 'Desajuste de nivel de monto'
-  return {
-    value: 'ajustar_monto',
-    supportingCriteria: codes,
-    justification: just,
-  }
+  if (!codes.length) codes.push('CR-022')
+  return recomendacionConFundamentos(
+    'ajustar_monto',
+    codes,
+    porCodigo,
+    admissibility,
+    dimensions,
+    meta,
+    confidence,
+    reward,
+  )
 }
 
 export function agregarRecomendacion(
@@ -344,28 +544,36 @@ export function agregarRecomendacion(
   reward: Reward,
   confidence: Confidence,
   meta: Partial<MetaAnalisis>,
+  dimensions?: DimensionValoracion[] | null,
 ): Recommendation {
   const porCodigo: Record<string, Criterio> = {}
   for (const c of criterios) porCodigo[c.code] = c
 
   if (admissibility.outcome === 'no_admisible') {
     const stopped = admissibility.stoppedAt || 'CA'
-    return {
-      value: 'rechazar',
-      supportingCriteria: [stopped],
-      justification: `Admisibilidad no superada en ${stopped}`,
-    }
+    return recomendacionConFundamentos(
+      'rechazar',
+      [stopped],
+      porCodigo,
+      admissibility,
+      dimensions,
+      meta,
+      confidence,
+      reward,
+    )
   }
 
   if (meta.dependeInformacionExterna) {
-    const motivo =
-      meta.motivoDependencia || 'Depende de informacion externa'
-    const just = sanitizarTextoModelo(String(motivo)) || String(motivo)
-    return {
-      value: 'derivar_revision_humana',
-      supportingCriteria: [],
-      justification: just,
-    }
+    return recomendacionConFundamentos(
+      'derivar_revision_humana',
+      [],
+      porCodigo,
+      admissibility,
+      dimensions,
+      meta,
+      confidence,
+      reward,
+    )
   }
 
   const altasNo: string[] = []
@@ -376,11 +584,16 @@ export function agregarRecomendacion(
     if (severidad[codigo] === 'alta') altasNo.push(codigo)
   }
   if (altasNo.length) {
-    return {
-      value: 'rechazar',
-      supportingCriteria: altasNo,
-      justification: justificacion(porCodigo, altasNo),
-    }
+    return recomendacionConFundamentos(
+      'rechazar',
+      altasNo,
+      porCodigo,
+      admissibility,
+      dimensions,
+      meta,
+      confidence,
+      reward,
+    )
   }
 
   const mismatch = Boolean(reward.levelMismatch)
@@ -398,13 +611,25 @@ export function agregarRecomendacion(
       soloRazonesTareaNoVerificable(reasons) &&
       ratioInsuf < umbralInsuf
     ) {
-      return recomendacionAjustarMonto(porCodigo, reward)
+      return recomendacionAjustarMonto(
+        porCodigo,
+        reward,
+        admissibility,
+        dimensions,
+        meta,
+        confidence,
+      )
     }
-    return {
-      value: 'derivar_revision_humana',
-      supportingCriteria: [],
-      justification: reasons.length ? reasons.join('; ') : 'Confianza baja',
-    }
+    return recomendacionConFundamentos(
+      'derivar_revision_humana',
+      [],
+      porCodigo,
+      admissibility,
+      dimensions,
+      meta,
+      confidence,
+      reward,
+    )
   }
 
   const cr022 = porCodigo['CR-022'] || ({} as Criterio)
@@ -414,14 +639,26 @@ export function agregarRecomendacion(
     cr022.level === 'no_cumple' ||
     cr023.level === 'no_cumple'
   ) {
-    return recomendacionAjustarMonto(porCodigo, reward)
+    return recomendacionAjustarMonto(
+      porCodigo,
+      reward,
+      admissibility,
+      dimensions,
+      meta,
+      confidence,
+    )
   }
 
-  return {
-    value: 'aprobar',
-    supportingCriteria: [],
-    justification: 'Ningun criterio de rechazo o ajuste aplicable',
-  }
+  return recomendacionConFundamentos(
+    'aprobar',
+    [],
+    porCodigo,
+    admissibility,
+    dimensions,
+    meta,
+    confidence,
+    reward,
+  )
 }
 
 export function agregarPrioridad(criterios: Criterio[]): Priority {
@@ -454,25 +691,25 @@ export function agregarLimits(
 ): string[] {
   const limits = [
     'CA-005 no verificable con el insumo disponible',
-    'Contenido de los comentarios de revision no disponible',
+    'Contenido de los comentarios de revisión no disponible',
   ]
   if (insumoTruncado(entrada, meta)) {
     limits.push('Conjunto de diferencias truncado')
   }
   if (meta.dependeInformacionExterna) {
     const motivo =
-      meta.motivoDependencia || 'Dependencia de informacion externa'
+      meta.motivoDependencia || 'Dependencia de información externa'
     limits.push(String(sanitizarTextoModelo(String(motivo)) || motivo))
   }
   if (admissibility.outcome === 'no_admisible') {
-    const stopped = admissibility.stoppedAt || 'condicion de admisibilidad'
+    const stopped = admissibility.stoppedAt || 'condición de admisibilidad'
     limits.push(
-      `Analisis detenido en ${stopped}; los 23 criterios quedan en evidencia insuficiente`,
+      `Análisis detenido en ${stopped}; los 23 criterios quedan en evidencia insuficiente`,
     )
   }
-  if (meta.modoEjecucion === 'simulado') {
+  if (esModoReglas(meta)) {
     limits.push(
-      'Analisis simulado con reglas heuristicas, no con el modelo de lenguaje',
+      'Análisis con motor de reglas deterministas; no usa el modelo de lenguaje',
     )
   }
   const monto = entrada.requested_amount
@@ -487,7 +724,7 @@ export function agregarLimits(
     }
     if (montoInt != null && montoInt < minimoEscala) {
       limits.push(
-        `Monto solicitado (${montoInt}) por debajo del minimo de la escala ` +
+        `Monto solicitado (${montoInt}) por debajo del mínimo de la escala ` +
           `(${minimoEscala})`,
       )
     }
@@ -502,19 +739,30 @@ export function agregar(
   entrada: Entrada,
   meta: Partial<MetaAnalisis> = {},
 ) {
-  const dimensions = agregarDimensiones(criterios)
-  const reward = agregarReward(entrada.requested_amount, meta)
-  const confidence = agregarConfianza(admissibility, criterios, entrada, meta)
+  const metaNorm: Partial<MetaAnalisis> = { ...meta }
+  const modo = normalizarModoEjecucion(metaNorm.modoEjecucion ?? null)
+  if (modo != null) metaNorm.modoEjecucion = modo
+
+  const criteriosAnotados = criterios.map(anotarCriterio)
+  const dimensions = agregarDimensiones(criteriosAnotados)
+  const reward = agregarReward(entrada.requested_amount, metaNorm)
+  const confidence = agregarConfianza(
+    admissibility,
+    criteriosAnotados,
+    entrada,
+    metaNorm,
+  )
   const recommendation = agregarRecomendacion(
     admissibility,
-    criterios,
+    criteriosAnotados,
     reward,
     confidence,
-    meta,
+    metaNorm,
+    dimensions,
   )
-  const priority = agregarPrioridad(criterios)
-  const limits = agregarLimits(admissibility, entrada, meta)
-  const signals = (meta.automationSignals || []).map(
+  const priority = agregarPrioridad(criteriosAnotados)
+  const limits = agregarLimits(admissibility, entrada, metaNorm)
+  const signals = (metaNorm.automationSignals || []).map(
     (s) => sanitizarTextoModelo(String(s)) || '',
   )
 
@@ -526,5 +774,6 @@ export function agregar(
     priority,
     limits,
     automationSignals: signals,
+    criteria: criteriosAnotados,
   }
 }

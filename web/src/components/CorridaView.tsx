@@ -17,7 +17,13 @@ import {
   resumenTrasEtapa,
 } from '../etapas'
 import { origenLabel } from '../corridasStore'
-import { bandLabel, dimensionLabel, repoFromIdOrUrl } from '../labels'
+import {
+  bandLabel,
+  dimensionLabel,
+  formatCurrency,
+  repoFromIdOrUrl,
+  rewardLevelLabel,
+} from '../labels'
 import { RecommendationChip } from './RecommendationChip'
 
 type Props = {
@@ -46,6 +52,42 @@ function dimCounts(salida: Salida, dim: DimensionNombre): { met: number; unmet: 
 
 function titleLines(title: string): string {
   return title
+}
+
+function requestedAmountForItem(item: ItemCorrida): number {
+  return item.entrada.requested_amount ?? item.salida?.reward.requestedAmount ?? 0
+}
+
+function MontoCell({
+  item,
+  etapa,
+  processing,
+}: {
+  item: ItemCorrida
+  etapa: number
+  processing: boolean
+}) {
+  const salida = item.salida
+  const noAdm = salida?.admissibility.outcome === 'no_admisible'
+  const requested = requestedAmountForItem(item)
+
+  if (processing && etapa >= 4 && item.etapaAlcanzada < 4) {
+    return <Loader2 size={16} className="spin" aria-label="Procesando" />
+  }
+
+  if (noAdm || !salida?.reward || item.etapaAlcanzada < 4) {
+    return <span className="pr-monto-simple">{formatCurrency(requested)}</span>
+  }
+
+  const reward = salida.reward
+  return (
+    <div className={`pr-monto-cell${reward.levelMismatch ? ' pr-monto-mismatch' : ''}`}>
+      <span className="pr-monto-flow">
+        {formatCurrency(reward.requestedAmount)} → {formatCurrency(reward.suggestedAmount)}
+      </span>
+      <span className="pr-monto-level muted">{rewardLevelLabel(reward.suggestedLevel)}</span>
+    </div>
+  )
 }
 
 export function CorridaView({
@@ -84,6 +126,18 @@ export function CorridaView({
       .filter((i) => i.salida?.admissibility.outcome === 'admisible')
       .sort((a, b) => (b.salida?.priority.score ?? 0) - (a.salida?.priority.score ?? 0))
   }, [corrida.items, etapa])
+
+  const modoEtiqueta = useMemo(() => {
+    if (corrida.modoEjecucion === 'real') {
+      const salida = corrida.items.find((i) => i.salida?.model)?.salida
+      const version = salida?.model?.version?.trim()
+      if (version) return `modelo ${version}`
+      const name = salida?.model?.name?.trim()
+      if (name) return `modelo ${name}`
+      return 'modelo'
+    }
+    return 'motor de reglas'
+  }, [corrida.modoEjecucion, corrida.items])
 
   function downloadRegistro() {
     const payload = {
@@ -129,9 +183,9 @@ export function CorridaView({
         <div className="corrida-header-text">
           <h2>{corrida.nombre}</h2>
           <p className="muted">
-            {origenLabel(corrida.origen)}, {corrida.items.length} PR, modo{' '}
+            {origenLabel(corrida.origen)}, {corrida.items.length} PR,{' '}
             <span className={`modo-pill modo-pill-${corrida.modoEjecucion}`}>
-              {corrida.modoEjecucion === 'real' ? 'real' : 'simulado'}
+              {modoEtiqueta}
             </span>
           </p>
         </div>
@@ -244,6 +298,7 @@ export function CorridaView({
           <thead>
             <tr>
               <th>PR</th>
+              <th>Monto</th>
               {etapa >= 1 && <th>Validez</th>}
               {etapa >= 2 && <th>Volumen real</th>}
               {etapa >= 3 && <th>Dimensiones</th>}
@@ -287,6 +342,8 @@ export function CorridaView({
                   <div className="cola-humana-info">
                     <strong>{item.entrada.context.title ?? item.id}</strong>
                     <span className="muted">
+                      {formatCurrency(requestedAmountForItem(item))}
+                      {' · '}
                       Prioridad {s.priority.score}, confianza {bandLabel(s.confidence.band)}
                       {decided ? ', decisión registrada' : ''}
                     </span>
@@ -361,6 +418,10 @@ function PrRow({
             <ExternalLink size={14} />
           </a>
         )}
+      </td>
+
+      <td className="pr-monto-col">
+        <MontoCell item={item} etapa={etapa} processing={processing} />
       </td>
 
       {etapa >= 1 && (

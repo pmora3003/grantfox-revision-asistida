@@ -122,20 +122,6 @@ export default function App() {
     [corridas],
   )
 
-  const headerModo = useMemo(() => {
-    if (view.name === 'corrida' || view.name === 'detalle') {
-      return currentCorrida?.modoEjecucion ?? null
-    }
-    if (view.name === 'recorrido') return demoCorrida?.modoEjecucion ?? null
-    return null
-  }, [view, currentCorrida, demoCorrida])
-
-  const headerModel = useMemo(() => {
-    const c = view.name === 'recorrido' ? demoCorrida : currentCorrida
-    const s = c?.items.find((i) => i.salida)?.salida
-    return s?.model.version ?? ''
-  }, [view, currentCorrida, demoCorrida])
-
   async function ensureSalidas(corrida: Corrida): Promise<Corrida> {
     const needs = corrida.items.some((i) => !i.salida)
     if (!needs) return corrida
@@ -152,7 +138,7 @@ export default function App() {
         items.push({ ...it, salida })
       }
       setProcessingItemId(null)
-      return { ...corrida, items, modoEjecucion: 'simulado' }
+      return { ...corrida, items, modoEjecucion: 'reglas' }
     } finally {
       setComputingSalidas(false)
     }
@@ -327,8 +313,6 @@ export default function App() {
         <Header
           themePref={themePref}
           onThemeChange={setThemePref}
-          modoEjecucion={headerModo}
-          modelVersion={headerModel}
           contextoBadge={
             view.name === 'inicio'
               ? `${corridas.length} corrida${corridas.length === 1 ? '' : 's'}`

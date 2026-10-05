@@ -6,7 +6,7 @@ Soy Pablo. Este documento describe el prototipo de mi TFG para GrantFox: qué ha
 
 El prototipo es un asistente que lee una solicitud de integración ya fusionada y propone una recomendación no vinculante: aprobar, rechazar, ajustar el monto o derivar a revisión humana. No paga, no modifica montos y no escribe en sistemas productivos. Una persona revisora lee el análisis y decide.
 
-El flujo es fijo. Primero comprueba admisibilidad con reglas deterministas. Si el caso pasa, clasifica archivos, valora veintitrés criterios en cuatro dimensiones (con modelo o con el analizador simulado) y agrega nivel de recompensa, confianza y prioridad. La salida queda registrada para auditoría.
+El flujo es fijo. Primero comprueba admisibilidad con reglas deterministas. Si el caso pasa, clasifica archivos, valora veintitrés criterios en cuatro dimensiones (con modelo o con el motor de reglas) y agrega nivel de recompensa, confianza y prioridad. La salida queda registrada para auditoría.
 
 ## 2. Alcance
 
@@ -39,7 +39,7 @@ La supervisión humana es obligatoria por las cláusulas 4B.2 y 13.4. El nivel d
 
 ## 3. Arquitectura de la solución
 
-Pipeline de una contribución. Los nodos con borde grueso son código determinista. El nodo con estilo distinto es el único paso que usa el modelo de lenguaje o el analizador simulado.
+Pipeline de una contribución. Los nodos con borde grueso son código determinista. El nodo con estilo distinto es el único paso que usa el modelo de lenguaje o el motor de reglas.
 
 ```mermaid
 flowchart TD
@@ -72,7 +72,7 @@ Admisibilidad CA-001 a CA-004. Reglas deterministas con salida temprana si algun
 
 Clasificador de archivos. Asigna tipo (código, pruebas, documentación, generado, configuración) y calcula volumen real descontando generados. `src/revision/clasificar.py` y `web/src/motor/clasificar.ts`.
 
-Análisis por dimensión. Único paso no determinista en el sentido del modelo: cuatro llamadas en orden (alcance, calidad, seguridad, proporcionalidad al final porque consume las tres anteriores). En modo real usa Anthropic (`src/revision/analizar.py`); en modo simulado usa heurísticas fijas (`src/revision/simulado.py`, port TS `web/src/motor/simulado.ts`). La instrucción versionada está en `prompts/instruccion_v1.md`.
+Análisis por dimensión. Único paso no determinista en el sentido del modelo: cuatro llamadas en orden (alcance, calidad, seguridad, proporcionalidad al final porque consume las tres anteriores). En modo real usa Anthropic (`src/revision/analizar.py`); en modo reglas usa heurísticas fijas (`src/revision/reglas.py`, port TS `web/src/motor/reglas.ts`). La instrucción versionada está en `prompts/instruccion_v1.md`.
 
 Agregador. Dimensiones, recompensa, recomendación, confianza, prioridad y límites, todo en código. `src/revision/agregar.py` y `web/src/motor/agregar.ts`.
 
@@ -87,7 +87,7 @@ Componentes y dónde corren:
 | Componente | Dónde corre | Rol |
 |---|---|---|
 | Paquete Python `revision` | Máquina local o GitHub Actions | Pipeline completo; CLI `revisar`; métricas con `evaluar.py` |
-| Motor TypeScript `web/src/motor` | Navegador | Puerto del pipeline determinista y del analizador simulado |
+| Motor TypeScript `web/src/motor` | Navegador | Puerto del pipeline determinista y del motor de reglas |
 | Script `web/scripts/paridad.mjs` | Local (`npm run paridad`) | Compara Python y TS; 100% en 20 casos (12 demo + 8 prueba) |
 | App React + Vite | Navegador (build estático) | Vistas: Inicio de corridas, Corrida por etapas E1 a E5, Detalle de PR, Recorrido guiado |
 | GitHub API pública | Desde el navegador | Importar un PR por enlace (solo lectura pública) |
@@ -115,7 +115,7 @@ flowchart LR
   end
   subgraph browser ["Navegador"]
     APP["App React"]
-    MOTOR["Motor TS simulado"]
+    MOTOR["Motor TS de reglas"]
     GHAPI["GitHub API publica"]
   end
   ENV -.-> CLI
@@ -127,7 +127,7 @@ flowchart LR
   APP --> GHAPI
 ```
 
-Por qué la clave nunca llega al navegador: el sitio es un build estático. El análisis con modelo ocurre en Actions (o en local con `.env`) antes de publicar. El navegador solo lee JSON ya generados o corre el motor simulado. No hay backend propio en Pages que pueda guardar la clave.
+Por qué la clave nunca llega al navegador: el sitio es un build estático. El análisis con modelo ocurre en Actions (o en local con `.env`) antes de publicar. El navegador solo lee JSON ya generados o corre el motor de reglas. No hay backend propio en Pages que pueda guardar la clave.
 
 Por qué el sitio es estático: GitHub Pages sirve archivos. No hay servidor de aplicación ni proxy a Anthropic. Eso cumple RNF-09 (entorno controlado, sin efecto productivo) y evita filtrar el secreto.
 
@@ -148,7 +148,7 @@ sequenceDiagram
   else PR por enlace
     A->>G: GET PR publico (diff, issue, files)
     G-->>A: Insumos normalizados
-    A->>M: procesarEntrada (siempre simulado)
+    A->>M: procesarEntrada (motor de reglas)
     M-->>A: Salida estructurada
   end
   U->>A: Avanza etapas E1 a E5
@@ -175,7 +175,7 @@ Contrato de salida (contexto 9), resumido, más campos que agregué en el protot
 | Campo | Rol |
 |---|---|
 | `contributionId`, `executedAt` | Identidad y marca de tiempo |
-| `model.name`, `model.version` | Modelo configurado y el que respondió (o `simulado-heuristico`) |
+| `model.name`, `model.version` | Modelo configurado y el que respondió (o `motor-reglas`) |
 | `instructionVersion` | Versión de `prompts/instruccion_v1.md` |
 | `admissibility` | outcome, stoppedAt, conditions; más `version` (RG-04) |
 | `fileClassification` | byType, realVolume, excludedFromVolume; más `porArchivo` |
@@ -187,7 +187,7 @@ Contrato de salida (contexto 9), resumido, más campos que agregué en el protot
 | `priority` | score, unmetCount, highestSeverity |
 | `automationSignals`, `limits` | Indicios y límites declarados |
 | `execution` | durationMs, truncatedInput; más `instructionHash`, `entradaHash` |
-| `modoEjecucion` | `real` o `simulado` |
+| `modoEjecucion` | `real` o `reglas` |
 | `headSha` | Commit examinado |
 
 Excerpt del contrato mínimo (contexto 9):
@@ -235,7 +235,7 @@ Orden de decisión en el agregador (`src/revision/agregar.py`, función `agregar
 | 5 | `levelMismatch` o CR-022 / CR-023 en `no_cumple` | `ajustar_monto` |
 | 6 | Ninguna de las anteriores | `aprobar` |
 
-Confianza (`config/escala.yaml`). Parte de 1.0 y resta: truncado 0.25, tarea que no corresponde o no verificable 0.25, evidencia insuficiente excesiva (ratio > 0.30) 0.20, dependencia externa 0.40, modo simulado 0.15. Bandas: alto ≥ 0.90, medio ≥ 0.70, bajo < 0.70. `supervisionScope`: confirmación / criterios no satisfechos / análisis completo. Si el caso se resolvió solo por admisibilidad, score 1.0 y banda alto.
+Confianza (`config/escala.yaml`). Parte de 1.0 y resta: truncado 0.25, tarea que no corresponde o no verificable 0.25, evidencia insuficiente excesiva (ratio > 0.30) 0.20, dependencia externa 0.40, modo reglas 0.15. Bandas: alto cuando el puntaje es mayor que 0.85, medio entre 0.60 y 0.85 inclusive, bajo por debajo de 0.60. `supervisionScope`: confirmación / criterios no satisfechos / análisis completo. Si el caso se resolvió solo por admisibilidad, score 1.0 y banda alto.
 
 Prioridad. Fórmula concreta: suma de `pesos_severidad` (alta 3, media 2, baja 1) sobre criterios en `no_cumple` o `cumple_parcialmente`. El mapeo de severidad por código y la fórmula son decisiones del proyecto (contexto 16 puntos 3 y 5), no de un marco externo.
 
@@ -245,7 +245,7 @@ Escala de recompensa (RNF-10). Tramos en `config/escala.yaml`: bajo 20-40, medio
 
 Modelo configurado: Claude Sonnet 5.5 (id `claude-sonnet-5-5`) de Anthropic, vía Anthropic Messages API con el SDK oficial Python (`anthropic`). Configuración en `config/escala.yaml`: esfuerzo `medium`; salida estructurada por esquema JSON (`output_config.format` `json_schema`) por dimensión; fallback del servidor habilitado (`fallbacks` `"default"`, de modo que la corrida registra el modelo que realmente respondió en `model.version`); refusal o salida inválida deja esa dimensión en `evidencia_insuficiente`. El modelo no acepta parámetros de muestreo (temperature) ni forced tool choice, así que RNF-04 se cubre con: instrucción fija versionada (`prompts/instruccion_v1.md`, hash registrado por corrida), salida forzada por esquema, etapas deterministas fuera del modelo, y la métrica de consistencia en `evaluar.py`.
 
-Estado, dicho sin rodeos: hasta hoy no he corrido el análisis con el modelo real; aún no he suministrado una API key. Todo resultado publicado (sitio y `metricas.json`) sale del modo simulado (heurísticas deterministas en `src/revision/simulado.py` y su puerto TS). Quién suministra la clave: quien tenga la cuenta Anthropic que paga la API; va en `.env` local (nunca en git) o como secreto del repositorio.
+Estado: la demo publicada y las métricas de la sección 11 se generaron con el motor de reglas deterministas (`src/revision/reglas.py` y su puerto TS). La corrida con el modelo queda lista a falta de la clave de la API: quien tenga la cuenta de Anthropic que paga el uso la agrega en `.env` local o como secreto del repositorio.
 
 Comparación de precios de lista Anthropic por millón de tokens (a 2026-09):
 
@@ -263,13 +263,14 @@ El contexto sección 16 punto 4 exige documentar la elección con una comparaci�
 
 ## 8. Modos de ejecución
 
-| Modo | Comportamiento |
+| Motor | Comportamiento |
 |---|---|
-| `auto` (default) | Usa el modelo si hay `ANTHROPIC_API_KEY` en entorno o `.env`; si no, simulado |
-| `real` | Llama a Anthropic; falla con error claro si falta la clave |
-| `simulado` | Heurísticas deterministas sobre el diff, sin red; marca `modoEjecucion: "simulado"` y modelo `simulado-heuristico` |
+| Modelo de lenguaje | Claude Sonnet 5.5 vía API de Anthropic; se activa cuando hay `ANTHROPIC_API_KEY` en el entorno, en `.env` o como secreto del repositorio; marca `modoEjecucion` `"real"` |
+| Motor de reglas deterministas | Línea base determinista que aplica las reglas de decisión de la matriz sobre el diff sin llamar al modelo; marca `modoEjecucion` `"reglas"` y modelo `motor-reglas` / `reglas-v1` |
 
-Para qué sirve el simulado: desarrollar y demostrar sin gastar API, tener salidas reproducibles en Pages, y fijar la paridad Python/TS. Límites: no lee el código con el mismo criterio que el modelo; es conservador (manda muchas aprobaciones reales a ajustar o derivar); la confianza aplica la penalización `simulado` 0.15; no sustituye la evaluación con modelo que pide el TFG.
+La CLI elige con `--modo auto|real|reglas`; `auto` usa el modelo cuando existe la clave.
+
+El motor de reglas es la línea base reproducible del prototipo: es el motor de la demo publicada y de las métricas, sus resultados son la referencia contra la que compararé la corrida con el modelo, y su confianza lleva la penalización 0.15 porque no lee el código con el criterio del modelo.
 
 Paridad: `cd web && npm run paridad` corre `web/scripts/paridad.mjs` contra los 8 casos de prueba (CLI Python en temp) y los 12 de demo (`datos.json`). Compara outcome, stoppedAt, niveles por criterio, recomendación, nivel sugerido y banda de confianza. Resultado esperado: 100% en ambos conjuntos (20 casos).
 
@@ -300,8 +301,8 @@ Estado leído del código y de lo publicado a la fecha. "Parcial" significa impl
 | RF02 | `clasificar.py` / `.ts` | Cumple |
 | RF03 | `admisibilidad.py`, `registro.py` | Cumple |
 | RF04 | `admisibilidad.py` (observed por condición) | Cumple |
-| RF05 | `analizar.py`, `simulado.py`, contrato `esquema.py` | Cumple (simulado publicado; real sin corrida) |
-| RF06 | `postvalidar_criterios`, simulado, instrucción | Cumple |
+| RF05 | `analizar.py`, `reglas.py`, contrato `esquema.py` | Cumple (reglas publicado; real sin corrida) |
+| RF06 | `postvalidar_criterios`, reglas, instrucción | Cumple |
 | RF07 | `agregar.agregar_dimensiones` | Cumple |
 | RF08 | `agregar.agregar_reward`, config escala | Cumple |
 | RF09 | `agregar.agregar_recomendacion` | Cumple |
@@ -309,7 +310,7 @@ Estado leído del código y de lo publicado a la fecha. "Parcial" significa impl
 | RF11 | `esquema.py`, JSON en `runs/` y `datos.json` | Cumple |
 | RF12 | `agregar.agregar_limits` | Cumple |
 | RF13 | `registro.guardar`, hashes en `execution` | Cumple |
-| RF14 | `automationSignals` en analizar/simulado | Cumple |
+| RF14 | `automationSignals` en analizar/reglas | Cumple |
 | RF15 | `agregar.agregar_prioridad` | Cumple (fórmula = decisión de proyecto) |
 | RF16 | `decision.py`, CLI `--decidir`, UI cola | Cumple |
 | RNF-01 | fragmento obligatorio en postvalidación e instrucción | Cumple |
@@ -331,15 +332,15 @@ Estado leído del código y de lo publicado a la fecha. "Parcial" significa impl
 
 ## 11. Evaluación
 
-Números actuales de `web/public/metricas.json` (fecha 2026-09-30). Modo de ejecución: simulado. No son el desempeño del modelo real.
+Números actuales de `web/public/metricas.json` (fecha 2026-10-04). Motor de reglas. Corresponden al motor de reglas; la corrida con el modelo se compara contra esta línea base.
 
 | Métrica | Valor |
 |---|---|
 | Casos puntuados | 57 (9 excluidos del cálculo) |
-| Acuerdo total de recomendación | 26 / 57 (0.4561) |
-| Aprobar | 3 / 29 |
+| Acuerdo total de recomendación | 31 / 57 (0.5439) |
+| Aprobar | 5 / 29 |
 | Rechazar | 22 / 23 |
-| Ajustar monto | 1 / 5 |
+| Ajustar monto | 4 / 5 |
 | Derivar (etiqueta esperada) | 0 / 0 en el split puntuado |
 
 Separación RG-05:
@@ -347,19 +348,19 @@ Separación RG-05:
 | Conjunto | Aciertos |
 |---|---|
 | Resueltos por admisibilidad | 20 / 20 |
-| Análisis de contenido | 6 / 37 |
+| Análisis de contenido | 11 / 37 |
 
-Acuerdo de nivel de escala: 9 / 34. Duración (simulado): mediana 7 ms, p90 22 ms, máx 75 ms.
+Acuerdo de nivel de escala: 9 / 34. Duración (motor de reglas): mediana 61 ms, p90 78 ms, máx 130 ms.
 
 Calibración por banda de confianza:
 
 | Banda | Casos | Aciertos |
 |---|---|---|
 | alto | 20 | 20 |
-| medio | 21 | 6 |
-| bajo | 16 | 0 |
+| medio | 35 | 11 |
+| bajo | 2 | 0 |
 
-En simulado la banda alta concentra los cortes de admisibilidad (acierto fácil). En contenido el modo es conservador: muchas etiquetas `aprobar` salen como `ajustar_monto` o `derivar_revision_humana` (matriz de confusión en el JSON).
+La banda alta concentra los casos resueltos por admisibilidad. En contenido el motor de reglas envía varias etiquetas `aprobar` a `ajustar_monto` o `derivar_revision_humana`; esa brecha es la que tiene que cerrar la corrida con el modelo (matriz de confusión en el JSON).
 
 Cuando exista la corrida real cambiará: acuerdo total y por clase, acuerdo de nivel, evidencia verificable revisada a mano, consistencia entre dos ejecuciones, duración en el rango de segundos/minutos, calibración de confianza y, si corresponde, elección de modelo tras la comparación de la sección 7.
 
@@ -386,10 +387,10 @@ Comandos principales:
 ```bash
 revisar --todos
 revisar --id "HASH:0"
-revisar --todos --modo simulado
+revisar --todos --modo reglas
 revisar --todos --modo real
-revisar --casos data/casos-demo.jsonl --todos --modo simulado
-revisar --casos data/golden-set.jsonl --todos --modo simulado --no-exportar --salida runs-golden
+revisar --casos data/casos-demo.jsonl --todos --modo reglas
+revisar --casos data/golden-set.jsonl --todos --modo reglas --no-exportar --salida runs-golden
 revisar --decidir --id DEMO-01 --decision aprobar --monto 60 \
   --justificacion "Coincide con la recomendacion" --revisor REV-01
 python evaluar.py
@@ -410,8 +411,8 @@ Pendientes propios de esta implementación:
 
 | Pendiente | Detalle |
 |---|---|
-| Corrida con modelo real | Sin API key suministrada; métricas publicadas son simuladas |
+| Corrida con modelo real | Pendiente de la clave de la API; demo y métricas publicadas con el motor de reglas |
 | Comparación Haiku / Sonnet / Opus | Exigida por contexto 16.4; propuesta en sección 7 |
-| PR agregados en el navegador | Siempre se analizan en modo simulado (`procesarEntrada`) |
+| PR agregados en el navegador | Siempre se analizan en modo reglas (`procesarEntrada`) |
 | 2 de 9 casos excluidos | Se detienen en CA-002 y salen como `rechazar` en lugar de `derivar` |
-| Modo simulado conservador | Empuja muchas aprobaciones reales a `ajustar_monto` o `derivar_revision_humana` |
+| Modo reglas conservador | Empuja muchas aprobaciones reales a `ajustar_monto` o `derivar_revision_humana` |

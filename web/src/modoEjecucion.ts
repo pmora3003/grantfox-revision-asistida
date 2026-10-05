@@ -1,9 +1,19 @@
 import type { CasoRevision, Salida } from './types'
 
-export type ModoEjecucion = 'real' | 'simulado'
+export type ModoEjecucion = 'real' | 'reglas' | 'simulado'
 
 export function modoDeSalida(salida: Salida): ModoEjecucion {
-  return salida.modoEjecucion === 'real' ? 'real' : 'simulado'
+  if (salida.modoEjecucion === 'real') return 'real'
+  if (salida.modoEjecucion === 'reglas' || salida.modoEjecucion === 'simulado') {
+    return 'reglas'
+  }
+  return 'reglas'
+}
+
+export function etiquetaModo(modo: ModoEjecucion): string {
+  return modo === 'real'
+    ? 'Análisis con modelo'
+    : 'Análisis con motor de reglas'
 }
 
 export function todosCasosEnModoReal(cases: CasoRevision[]): boolean {
@@ -14,5 +24,5 @@ export function todosCasosEnModoReal(cases: CasoRevision[]): boolean {
 export function etiquetaModoCaso(salida: Salida): string {
   return modoDeSalida(salida) === 'real'
     ? 'Análisis con modelo de lenguaje'
-    : 'Análisis simulado (heurísticas)'
+    : 'Análisis con motor de reglas'
 }

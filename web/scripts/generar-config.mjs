@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Lee config/escala.yaml y config/admisibilidad.yaml y genera
+ * Lee config/escala.yaml, config/admisibilidad.yaml y config/marcos.yaml y genera
  * web/src/motor/config.generada.ts (fuente unica de umbrales en el motor TS).
  */
 import { createHash } from 'node:crypto'
@@ -15,17 +15,22 @@ const repoRoot = resolve(webRoot, '..')
 
 const escalaPath = join(repoRoot, 'config', 'escala.yaml')
 const admPath = join(repoRoot, 'config', 'admisibilidad.yaml')
+const marcosPath = join(repoRoot, 'config', 'marcos.yaml')
 const promptPath = join(repoRoot, 'prompts', 'instruccion_v1.md')
 const outPath = join(webRoot, 'src', 'motor', 'config.generada.ts')
 
 const escalaRaw = parseYaml(readFileSync(escalaPath, 'utf8'))
 const admRaw = parseYaml(readFileSync(admPath, 'utf8'))
+const marcosRaw = parseYaml(readFileSync(marcosPath, 'utf8'))
 
 if (!escalaRaw || typeof escalaRaw !== 'object') {
   throw new Error(`YAML invalido: ${escalaPath}`)
 }
 if (!admRaw || typeof admRaw !== 'object') {
   throw new Error(`YAML invalido: ${admPath}`)
+}
+if (!marcosRaw || typeof marcosRaw !== 'object') {
+  throw new Error(`YAML invalido: ${marcosPath}`)
 }
 
 const niveles = (escalaRaw.niveles || []).map((item) => ({
@@ -44,7 +49,7 @@ const escala = {
   modelo: { ...(escalaRaw.modelo || {}) },
   techo_observado:
     escalaRaw.techo_observado == null ? null : Number(escalaRaw.techo_observado),
-  simulado: { ...(escalaRaw.simulado || {}) },
+  reglas: { ...(escalaRaw.reglas || escalaRaw.simulado || {}) },
   raw: escalaRaw,
 }
 
@@ -53,6 +58,26 @@ const admisibilidad = {
   fecha: String(admRaw.fecha ?? ''),
   condiciones: (admRaw.condiciones || []).map((c) => ({ ...c })),
   raw: admRaw,
+}
+
+function normalizarEntradasMarco(bloque) {
+  const out = {}
+  for (const [codigo, valor] of Object.entries(bloque || {})) {
+    const item = valor && typeof valor === 'object' ? valor : {}
+    out[codigo] = {
+      marco: String(item.marco ?? ''),
+      url: item.url == null ? null : String(item.url),
+    }
+  }
+  return out
+}
+
+const marcos = {
+  version: String(marcosRaw.version ?? ''),
+  fecha: String(marcosRaw.fecha ?? ''),
+  condiciones: normalizarEntradasMarco(marcosRaw.condiciones),
+  criterios: normalizarEntradasMarco(marcosRaw.criterios),
+  raw: marcosRaw,
 }
 
 function versionInstruccion(texto) {
@@ -118,6 +143,8 @@ export const escala = ${JSON.stringify(escala, null, 2)} as const
 
 export const admisibilidad = ${JSON.stringify(admisibilidad, null, 2)} as const
 
+export const marcos = ${JSON.stringify(marcos, null, 2)} as const
+
 export type NivelNombre = 'bajo' | 'medio' | 'alto' | 'spike'
 
 export function parametrosCa(codigo: string): Record<string, unknown> {
@@ -161,6 +188,22 @@ export function rangoNivel(nombre: string): [number, number | null] | null {
     }
   }
   return null
+}
+
+export function marcoDeCriterio(codigo: string): { marco: string; url: string | null } {
+  const entrada = (marcos.criterios as Record<string, { marco: string; url: string | null }>)[codigo]
+  return entrada || { marco: '', url: null }
+}
+
+export function fuenteDeCondicion(codigo: string): { marco: string; url: string | null } {
+  const entrada = (marcos.condiciones as Record<string, { marco: string; url: string | null }>)[codigo]
+  return entrada || { marco: '', url: null }
+}
+
+export function normalizarModoEjecucion(modo: string | null | undefined): string | null {
+  if (modo == null) return null
+  if (modo === 'simulado') return 'reglas'
+  return modo
 }
 `
 

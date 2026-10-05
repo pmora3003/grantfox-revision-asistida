@@ -1,13 +1,9 @@
 import { Monitor, Moon, Sun } from 'lucide-react'
-import type { ModoEjecucionSalida } from '../types'
 import type { ThemePref } from '../theme'
 
 type Props = {
   themePref: ThemePref
   onThemeChange: (p: ThemePref) => void
-  /** Badge de modo de ejecución opcional (vista actual). */
-  modoEjecucion?: ModoEjecucionSalida | null
-  modelVersion?: string
   /** Texto corto de contexto (p. ej. nombre de corrida). */
   contextoBadge?: string
   onBrandClick?: () => void
@@ -16,8 +12,6 @@ type Props = {
 export function Header({
   themePref,
   onThemeChange,
-  modoEjecucion = null,
-  modelVersion = '',
   contextoBadge,
   onBrandClick,
 }: Props) {
@@ -69,15 +63,6 @@ export function Header({
       </div>
       <div className="header-badges">
         {contextoBadge && <span className="badge-demo">{contextoBadge}</span>}
-        {modoEjecucion === 'real' ? (
-          <span className="badge-execution badge-execution-real">
-            Análisis con modelo{modelVersion ? `: ${modelVersion}` : ''}
-          </span>
-        ) : modoEjecucion === 'simulado' ? (
-          <span className="badge-execution badge-execution-simulado">
-            Análisis simulado (sin API key)
-          </span>
-        ) : null}
       </div>
     </header>
   )
