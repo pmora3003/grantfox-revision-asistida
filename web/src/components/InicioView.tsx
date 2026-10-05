@@ -131,7 +131,7 @@ export function InicioView({
                     type="button"
                     className="btn btn-ghost"
                     onClick={onRestablecerDemo}
-                    title="Restablecer progreso de la corrida de demostración"
+                    title="Restablecer progreso de la corrida"
                   >
                     <RotateCcw size={15} aria-hidden /> Restablecer
                   </button>

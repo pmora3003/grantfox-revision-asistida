@@ -9,7 +9,7 @@ import type {
 import { modoDeSalida } from './modoEjecucion'
 
 export const DEMO_CORRIDA_ID = 'corrida-demo'
-export const DEMO_CORRIDA_NOMBRE = 'Corrida de demostración'
+export const DEMO_CORRIDA_NOMBRE = 'Corrida'
 
 const STORAGE_KEY = 'grantfox-corridas-v1'
 const TOUR_STEP_KEY = 'grantfox-recorrido-paso'
@@ -65,7 +65,9 @@ export function loadStoredCorridas(): StoredPayload {
             ? parsed.demo.decisiones
             : {},
       },
-      userCorridas: Array.isArray(parsed.userCorridas) ? parsed.userCorridas : [],
+      userCorridas: Array.isArray(parsed.userCorridas)
+        ? parsed.userCorridas.filter((c) => c?.id !== DEMO_CORRIDA_ID)
+        : [],
     }
   } catch {
     return defaultStored()
@@ -206,7 +208,7 @@ export function saveTourStep(step: number) {
 }
 
 export function origenLabel(o: OrigenCorrida): string {
-  if (o === 'por_defecto') return 'Demostración'
+  if (o === 'por_defecto') return 'Por defecto'
   if (o === 'enlaces') return 'Enlaces'
   return 'Archivo'
 }

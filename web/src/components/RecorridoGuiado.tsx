@@ -265,7 +265,7 @@ export function RecorridoGuiado({
             {highlight?.salida ? (
               <>
                 <p>
-                  Tomamos el PR admisible de mayor prioridad en la corrida de demostración:{' '}
+                  Tomamos el PR admisible de mayor prioridad en la corrida:{' '}
                   <strong>{highlight.entrada.context.title ?? highlight.id}</strong>.
                 </p>
                 <ResultCard salida={highlight.salida} />
@@ -281,7 +281,7 @@ export function RecorridoGuiado({
               </>
             ) : (
               <p className="muted">
-                Ejecute al menos la etapa de admisibilidad en la corrida de demostración (desde la
+                Ejecute al menos la etapa de admisibilidad en la corrida (desde la
                 pantalla de inicio) para ver un PR destacado.
               </p>
             )}

@@ -780,7 +780,7 @@ function HumanReviewPanel({
         La decisión la toma una persona revisora (cláusulas 4B.2 y 13.4).
       </div>
       <p className="form-note">
-        Demostración local: los datos se guardan solo en este navegador (localStorage). No se envía
+        Registro local: los datos se guardan solo en este navegador (localStorage). No se envía
         información a ningún servidor.
       </p>
       <div className="form-grid">
