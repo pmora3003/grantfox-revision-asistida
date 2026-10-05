@@ -5,7 +5,7 @@ export function Footer() {
     <footer className="site-footer">
       <p>
         Este prototipo no se conecta a sistemas productivos, no aprueba pagos ni modifica montos en
-        la plataforma. Opera solo como demostración del flujo de análisis asistido.
+        la plataforma.
       </p>
       <details className="footer-how-generated">
         <summary>

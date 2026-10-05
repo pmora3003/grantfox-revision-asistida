@@ -408,21 +408,10 @@ export default function App() {
       {view.name === 'recorrido' && !tourPaused && (
         <RecorridoGuiado
           demoCorrida={demoCorrida}
-          busy={busy}
-          processingItemId={processingItemId}
           onSalir={() => setView({ name: 'inicio' })}
-          onAbrirDemo={() => {
-            setTourPaused(true)
-            setStageBanner(null)
-            setView({ name: 'corrida', corridaId: DEMO_CORRIDA_ID })
-          }}
           onAbrirPr={(itemId) => {
             setTourPaused(true)
             setView({ name: 'detalle', corridaId: DEMO_CORRIDA_ID, itemId })
-          }}
-          onIniciarOAvanzarDemo={() => {
-            if (!demoCorrida) return
-            void handlePrimary(DEMO_CORRIDA_ID)
           }}
         />
       )}
@@ -430,13 +419,9 @@ export default function App() {
       {showTourPill && (
         <RecorridoGuiado
           demoCorrida={demoCorrida}
-          busy={busy}
-          processingItemId={processingItemId}
           tourPaused
           onSalir={() => setView({ name: 'inicio' })}
-          onAbrirDemo={() => undefined}
           onAbrirPr={() => undefined}
-          onIniciarOAvanzarDemo={() => undefined}
           onVolverAlRecorrido={() => {
             setTourPaused(false)
             setView({ name: 'recorrido' })

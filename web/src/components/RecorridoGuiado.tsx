@@ -1,21 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import {
-  ArrowLeft,
-  ArrowRight,
-  ExternalLink,
-  Loader2,
-  Play,
-  X,
-} from 'lucide-react'
+import { ArrowLeft, ArrowRight, X } from 'lucide-react'
 import type { Corrida, ItemCorrida, Salida } from '../types'
 import { escala } from '../motor/config.generada'
 import { DEMO_CORRIDA_ID, loadTourStep, saveTourStep } from '../corridasStore'
-import {
-  ETAPAS_CORRIDA,
-  TOTAL_ETAPAS,
-  countsEmbudo,
-  contarRecomendaciones,
-} from '../etapas'
 import {
   bandLabel,
   formatCurrency,
@@ -24,10 +11,9 @@ import {
   supervisionLabel,
 } from '../labels'
 import { ResultCard } from './ResultCard'
-import { RecommendationChip } from './RecommendationChip'
 import { LevelBadge } from './LevelBadge'
 
-export const TOUR_TOTAL_STEPS = 9
+export const TOUR_TOTAL_STEPS = 8
 
 type Metricas = {
   fecha: string
@@ -44,13 +30,9 @@ type Metricas = {
 
 type Props = {
   demoCorrida: Corrida | null
-  busy: boolean
-  processingItemId: string | null
   onSalir: () => void
-  onAbrirDemo: () => void
   onAbrirPr: (itemId: string) => void
-  onIniciarOAvanzarDemo: () => void
-  /** Si se abrió la demo desde el tour, mostrar pastilla flotante. */
+  /** Si se abrió un detalle desde el tour, mostrar pastilla flotante. */
   tourPaused?: boolean
   onVolverAlRecorrido?: () => void
 }
@@ -92,12 +74,8 @@ function pickHighestPriorityAdmissible(items: ItemCorrida[]): ItemCorrida | null
 
 export function RecorridoGuiado({
   demoCorrida,
-  busy,
-  processingItemId,
   onSalir,
-  onAbrirDemo,
   onAbrirPr,
-  onIniciarOAvanzarDemo,
   tourPaused,
   onVolverAlRecorrido,
 }: Props) {
@@ -160,17 +138,6 @@ export function RecorridoGuiado({
       </button>
     )
   }
-
-  const embudo = demoCorrida
-    ? countsEmbudo(
-        demoCorrida.etapaActual,
-        demoCorrida.items.map((i) => i.salida),
-      )
-    : null
-  const recs =
-    demoCorrida && demoCorrida.etapaActual >= 4
-      ? contarRecomendaciones(demoCorrida.items.map((i) => i.salida))
-      : null
 
   return (
     <div className="recorrido-view">
@@ -294,94 +261,6 @@ export function RecorridoGuiado({
 
         {step === 4 && (
           <>
-            <h2>Demostración en vivo</h2>
-            <p>
-              Avance la corrida de demostración aquí mismo, o ábrala a pantalla completa y vuelva
-              cuando quiera.
-            </p>
-            <div className="tour-demo-controls">
-              <button
-                type="button"
-                className="btn btn-primary"
-                disabled={busy || !demoCorrida || (demoCorrida.etapaActual >= TOTAL_ETAPAS)}
-                onClick={onIniciarOAvanzarDemo}
-              >
-                {busy ? (
-                  <Loader2 size={16} className="spin" aria-hidden />
-                ) : (
-                  <Play size={16} aria-hidden />
-                )}
-                {!demoCorrida
-                  ? 'Cargando demo…'
-                  : !demoCorrida.iniciadaEn
-                    ? 'Iniciar corrida de demostración'
-                    : demoCorrida.etapaActual >= TOTAL_ETAPAS
-                      ? 'Demo completada'
-                      : `Ejecutar etapa ${demoCorrida.etapaActual + 1}: ${ETAPAS_CORRIDA[demoCorrida.etapaActual]?.shortName ?? ''}`}
-              </button>
-              <button type="button" className="btn" onClick={onAbrirDemo}>
-                <ExternalLink size={16} aria-hidden /> Abrir la corrida de demostración
-              </button>
-            </div>
-            {embudo && (
-              <div className="embudo embudo-compact">
-                <div className="embudo-step">
-                  <strong>{embudo.recibidos}</strong>
-                  <span>Recibidos</span>
-                </div>
-                <span className="embudo-arrow" aria-hidden>
-                  →
-                </span>
-                <div className="embudo-step">
-                  <strong>
-                    {demoCorrida && demoCorrida.etapaActual >= 1 ? embudo.admisibles : '-'}
-                  </strong>
-                  <span>Admisibles</span>
-                </div>
-                <span className="embudo-arrow" aria-hidden>
-                  →
-                </span>
-                <div className="embudo-step">
-                  <strong>
-                    {demoCorrida && demoCorrida.etapaActual >= 3 ? embudo.analizados : '-'}
-                  </strong>
-                  <span>Analizados</span>
-                </div>
-                <span className="embudo-arrow" aria-hidden>
-                  →
-                </span>
-                <div className="embudo-step">
-                  <strong>
-                    {demoCorrida && demoCorrida.etapaActual >= 4
-                      ? embudo.conRecomendacion
-                      : '-'}
-                  </strong>
-                  <span>Con recomendación</span>
-                </div>
-              </div>
-            )}
-            {processingItemId && (
-              <p className="muted" role="status">
-                <Loader2 size={14} className="spin icon-inline" /> Procesando {processingItemId}…
-              </p>
-            )}
-            {recs && (
-              <div className="rec-distribution">
-                {(Object.entries(recs) as [keyof typeof recs, number][])
-                  .filter(([, n]) => n > 0)
-                  .map(([k, n]) => (
-                    <span key={k} className="corrida-rec-count">
-                      <RecommendationChip value={k} />
-                      <span className="rec-n">{n}</span>
-                    </span>
-                  ))}
-              </div>
-            )}
-          </>
-        )}
-
-        {step === 5 && (
-          <>
             <h2>Un PR en detalle</h2>
             {highlight?.salida ? (
               <>
@@ -402,14 +281,14 @@ export function RecorridoGuiado({
               </>
             ) : (
               <p className="muted">
-                Ejecute al menos la etapa de admisibilidad en la corrida de demostración para ver un
-                PR destacado, o ábrala desde el paso anterior.
+                Ejecute al menos la etapa de admisibilidad en la corrida de demostración (desde la
+                pantalla de inicio) para ver un PR destacado.
               </p>
             )}
           </>
         )}
 
-        {step === 6 && (
+        {step === 5 && (
           <>
             <h2>Supervisión humana y trazabilidad</h2>
             <p>
@@ -458,7 +337,7 @@ export function RecorridoGuiado({
           </>
         )}
 
-        {step === 7 && (
+        {step === 6 && (
           <>
             <h2>Evaluación</h2>
             {metricasError && (
@@ -513,7 +392,7 @@ export function RecorridoGuiado({
           </>
         )}
 
-        {step === 8 && (
+        {step === 7 && (
           <>
             <h2>Límites y siguientes pasos</h2>
             <p>Todavía no está definido (y el prototipo no lo inventa):</p>

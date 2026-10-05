@@ -131,30 +131,38 @@ Por qué la clave nunca llega al navegador: el sitio es un build estático. El a
 
 Por qué el sitio es estático: GitHub Pages sirve archivos. No hay servidor de aplicación ni proxy a Anthropic. Eso cumple RNF-09 (entorno controlado, sin efecto productivo) y evita filtrar el secreto.
 
-Secuencia de una corrida en la demo (datos precalculados o PR importado):
+Secuencia del flujo real de una contribución:
 
 ```mermaid
 sequenceDiagram
-  participant U as Usuario
-  participant A as App React
-  participant M as Motor TS
-  participant D as datos.json
-  participant G as GitHub API
-
-  U->>A: Abre Inicio / crea corrida
-  alt Corrida demo
-    A->>D: Carga salidas precalculadas
-    D-->>A: Casos con salida
-  else PR por enlace
-    A->>G: GET PR publico (diff, issue, files)
-    G-->>A: Insumos normalizados
-    A->>M: procesarEntrada (motor de reglas)
-    M-->>A: Salida estructurada
+  participant PM as Persona mantenedora
+  participant RP as Registro de la plataforma
+  participant PI as Pipeline de revision
+  participant LLM as Modelo de lenguaje (API Anthropic)
+  participant PR as Persona revisora
+  PM->>RP: Solicita presupuesto de un PR fusionado
+  RP->>PI: Entrega los insumos de la contribucion
+  PI->>PI: Normaliza la entrada
+  PI->>PI: Admisibilidad CA-001 a CA-004
+  alt No admisible
+    PI->>PI: Detiene el analisis y registra la condicion que fallo
+  else Admisible
+    PI->>PI: Clasifica archivos y calcula volumen real
+    loop Alcance, calidad, seguridad
+      PI->>LLM: Instruccion versionada y datos delimitados
+      LLM-->>PI: Criterios con nivel, evidencia y fragmento
+    end
+    PI->>LLM: Proporcionalidad con los resultados previos
+    LLM-->>PI: Nivel sugerido y monto
+    PI->>PI: Agrega recomendacion, confianza, prioridad y fundamentos
   end
-  U->>A: Avanza etapas E1 a E5
-  A-->>U: Recomendacion y cola humana
-  U->>A: Registra decision (local)
+  PI->>PI: Registra la ejecucion (modelo, version, hashes, duracion)
+  PI->>PR: Cola ordenada por prioridad con la recomendacion no vinculante
+  PR->>PI: Confirma, ajusta o cambia la decision
+  PI->>PI: Registra la decision final y su diferencia con la recomendacion
 ```
+
+Sin clave de la API, el paso del modelo lo cumple el motor de reglas deterministas con la misma entrada y la misma salida.
 
 Las etapas E1 a E5 de la UI (`web/src/etapas.ts`) son: admisibilidad, clasificación, dimensiones, agregación, cola humana. Encajan con el pipeline, no lo reemplazan.
 
