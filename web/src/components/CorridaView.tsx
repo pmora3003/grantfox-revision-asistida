@@ -343,7 +343,7 @@ export function CorridaView({
                     <strong>{item.entrada.context.title ?? item.id}</strong>
                     <span className="muted">
                       {formatCurrency(requestedAmountForItem(item))}
-                      {' · '}
+                      {', '}
                       Prioridad {s.priority.score}, confianza {bandLabel(s.confidence.band)}
                       {decided ? ', decisión registrada' : ''}
                     </span>

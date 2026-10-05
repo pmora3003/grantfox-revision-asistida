@@ -36,7 +36,7 @@ export function MarcoLine({ marco, url }: { marco: string; url?: string | null }
 }
 
 export function FuenteCell({ fuente, fuenteUrl }: { fuente?: string; fuenteUrl?: string | null }) {
-  if (!fuente) return <span className="muted">—</span>
+  if (!fuente) return <span className="muted">Sin fuente</span>
   if (fuenteUrl) {
     return (
       <a href={fuenteUrl} target="_blank" rel="noopener noreferrer">
@@ -73,7 +73,7 @@ export function FundamentosList({
               <li key={`${f.code}-${f.evidencia}`}>
                 <strong>{f.code}</strong>{' '}
                 <FundamentoLevel nivel={f.nivel} />
-                {' · '}
+                {', '}
                 {url ? (
                   <a href={url} target="_blank" rel="noopener noreferrer">
                     {f.marco}
@@ -81,7 +81,7 @@ export function FundamentosList({
                 ) : (
                   f.marco
                 )}
-                {' · '}
+                {', '}
                 <span className="muted">{f.evidencia}</span>
               </li>
             )
