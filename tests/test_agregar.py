@@ -332,6 +332,7 @@ def test_supervision_scope_por_banda():
 def test_bandas_confianza_limites():
     conf = cargar_escala().confianza
     assert _banda_confianza(0.86, conf) == "alto"
-    assert _banda_confianza(0.85, conf) == "medio"
+    assert _banda_confianza(0.85, conf) == "alto"
+    assert _banda_confianza(0.84, conf) == "medio"
     assert _banda_confianza(0.60, conf) == "medio"
     assert _banda_confianza(0.59, conf) == "bajo"

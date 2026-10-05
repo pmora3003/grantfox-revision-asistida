@@ -243,7 +243,7 @@ Orden de decisión en el agregador (`src/revision/agregar.py`, función `agregar
 | 5 | `levelMismatch` o CR-022 / CR-023 en `no_cumple` | `ajustar_monto` |
 | 6 | Ninguna de las anteriores | `aprobar` |
 
-Confianza (`config/escala.yaml`). Parte de 1.0 y resta: truncado 0.25, tarea que no corresponde o no verificable 0.25, evidencia insuficiente excesiva (ratio > 0.30) 0.20, dependencia externa 0.40, modo reglas 0.15. Bandas: alto cuando el puntaje es mayor que 0.85, medio entre 0.60 y 0.85 inclusive, bajo por debajo de 0.60. `supervisionScope`: confirmación / criterios no satisfechos / análisis completo. Si el caso se resolvió solo por admisibilidad, score 1.0 y banda alto.
+Confianza (`config/escala.yaml`). Parte de 1.0 y resta: truncado 0.25, tarea que no corresponde o no verificable 0.25, evidencia insuficiente excesiva (ratio > 0.30) 0.20, dependencia externa 0.40, modo reglas 0.20. Bandas, conforme a la Tabla 34 del TFG: alto cuando el puntaje es mayor o igual a 0.85, medio desde 0.60 y por debajo de 0.85, bajo por debajo de 0.60. Con la penalización de 0.20 el motor de reglas nunca llega a la banda alta en un caso de contenido. `supervisionScope`: confirmación / criterios no satisfechos / análisis completo. Si el caso se resolvió solo por admisibilidad, score 1.0 y banda alto.
 
 Prioridad. Fórmula concreta: suma de `pesos_severidad` (alta 3, media 2, baja 1) sobre criterios en `no_cumple` o `cumple_parcialmente`. El mapeo de severidad por código y la fórmula son decisiones del proyecto, no de un marco externo.
 
@@ -278,7 +278,7 @@ La elección del modelo se documenta con una comparación entre modelos, que es 
 
 La CLI elige con `--modo auto|real|reglas`; `auto` usa el modelo cuando existe la clave.
 
-El motor de reglas es la línea base reproducible del prototipo: es el motor de la demo publicada y de las métricas, sus resultados son la referencia contra la que compararé la corrida con el modelo, y su confianza lleva la penalización 0.15 porque no lee el código con el criterio del modelo.
+El motor de reglas es la línea base reproducible del prototipo: es el motor de la demo publicada y de las métricas, sus resultados son la referencia contra la que compararé la corrida con el modelo, y su confianza lleva la penalización 0.20 porque no lee el código con el criterio del modelo.
 
 Paridad: `cd web && npm run paridad` corre `web/scripts/paridad.mjs` contra los 8 casos de prueba (CLI Python en temp) y los 12 de demo (`datos.json`). Compara outcome, stoppedAt, niveles por criterio, recomendación, nivel sugerido y banda de confianza. Resultado esperado: 100% en ambos conjuntos (20 casos).
 

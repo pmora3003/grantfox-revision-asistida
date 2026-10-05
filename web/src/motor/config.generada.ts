@@ -30,14 +30,14 @@ export const escala = {
     }
   ],
   "confianza": {
-    "alto_mayor_que": 0.85,
+    "alto_desde": 0.85,
     "medio_desde": 0.6,
     "penalizaciones": {
       "truncado": 0.25,
       "tarea_no_corresponde": 0.25,
       "evidencia_insuficiente_excesiva": 0.2,
       "dependencia_externa": 0.4,
-      "reglas": 0.15
+      "reglas": 0.2
     },
     "umbral_evidencia_insuficiente": 0.3
   },
@@ -112,14 +112,14 @@ export const escala = {
     ],
     "techo_observado": 150,
     "confianza": {
-      "alto_mayor_que": 0.85,
+      "alto_desde": 0.85,
       "medio_desde": 0.6,
       "penalizaciones": {
         "truncado": 0.25,
         "tarea_no_corresponde": 0.25,
         "evidencia_insuficiente_excesiva": 0.2,
         "dependencia_externa": 0.4,
-        "reglas": 0.15
+        "reglas": 0.2
       },
       "umbral_evidencia_insuficiente": 0.3
     },

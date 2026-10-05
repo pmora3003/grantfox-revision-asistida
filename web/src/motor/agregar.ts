@@ -254,9 +254,9 @@ function bandaConfianza(
   score: number,
   conf: Record<string, unknown>,
 ): Confidence['band'] {
-  const umbralAlto = Number(conf.alto_mayor_que ?? 0.85)
+  const umbralAlto = Number(conf.alto_desde ?? 0.85)
   const umbralMedio = Number(conf.medio_desde ?? 0.6)
-  if (score > umbralAlto) return 'alto'
+  if (score >= umbralAlto) return 'alto'
   if (score >= umbralMedio) return 'medio'
   return 'bajo'
 }
@@ -319,7 +319,7 @@ export function agregarConfianza(
   }
 
   if (esModoReglas(meta)) {
-    score -= Number(penalizaciones.reglas ?? penalizaciones.simulado ?? 0.15)
+    score -= Number(penalizaciones.reglas ?? penalizaciones.simulado ?? 0.2)
     reasons.push('Análisis con motor de reglas, sin modelo de lenguaje')
   }
 

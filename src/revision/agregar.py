@@ -117,10 +117,10 @@ def _ratio_evidencia_insuficiente(criterios: list[dict[str, Any]]) -> float:
 
 
 def _banda_confianza(score: float, conf: dict[str, Any]) -> str:
-    """alto si score > alto_mayor_que; medio si score >= medio_desde; si no bajo."""
-    umbral_alto = float(conf.get("alto_mayor_que", 0.85))
+    """alto si score >= alto_desde; medio si score >= medio_desde; si no bajo (Tabla 34)."""
+    umbral_alto = float(conf.get("alto_desde", 0.85))
     umbral_medio = float(conf.get("medio_desde", 0.60))
-    if score > umbral_alto:
+    if score >= umbral_alto:
         return "alto"
     if score >= umbral_medio:
         return "medio"
@@ -186,7 +186,7 @@ def agregar_confianza(
 
     if _es_modo_reglas(meta):
         pen = float(
-            penalizaciones.get("reglas", penalizaciones.get("simulado", 0.15))
+            penalizaciones.get("reglas", penalizaciones.get("simulado", 0.20))
         )
         score -= pen
         reasons.append(
