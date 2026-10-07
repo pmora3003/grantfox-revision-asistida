@@ -7,5 +7,14 @@
     "motor": "real",
     "modelo": "claude-sonnet-5-5",
     "casos": 12
+  },
+  {
+    "id": "corrida-2",
+    "nombre": "Corrida 2",
+    "archivo": "corrida-2.json",
+    "generadaEn": "2026-10-07T04:25:30Z",
+    "motor": "real",
+    "modelo": "claude-sonnet-5-5",
+    "casos": 10
   }
 ]
