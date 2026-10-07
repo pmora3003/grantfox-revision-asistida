@@ -11,7 +11,7 @@ on:
         default: true
 
 permissions:
-  contents: read
+  contents: write
   pages: write
   id-token: write
 
@@ -22,34 +22,53 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pages: write
+      id-token: write
     steps:
       - uses: actions/checkout@v4
 
-      - name: Modo de análisis (resumen)
+      - name: Motor de análisis (resumen)
         run: |
-          if [ -n "${{ secrets.ANTHROPIC_API_KEY }}" ]; then
-            echo "## Modo: real" >> "$GITHUB_STEP_SUMMARY"
-            echo "Se usará el modelo de lenguaje durante la regeneración de datos." >> "$GITHUB_STEP_SUMMARY"
+          if [ "${{ github.event_name }}" = "push" ]; then
+            echo "## Sin regenerar: se publica datos.json del repositorio" >> "$GITHUB_STEP_SUMMARY"
+          elif [ "${{ inputs.regenerar }}" = "false" ]; then
+            echo "## Sin regenerar: se publica datos.json del repositorio" >> "$GITHUB_STEP_SUMMARY"
+          elif [ -n "${{ secrets.ANTHROPIC_API_KEY }}" ]; then
+            echo "## Motor: modelo de lenguaje (claude-sonnet-5-5)" >> "$GITHUB_STEP_SUMMARY"
           else
-            echo "## Modo: simulado" >> "$GITHUB_STEP_SUMMARY"
-            echo "No hay ANTHROPIC_API_KEY configurada; se usarán heurísticas simuladas." >> "$GITHUB_STEP_SUMMARY"
+            echo "## Motor: reglas deterministas" >> "$GITHUB_STEP_SUMMARY"
           fi
 
       - name: Configurar Python
-        if: github.event_name == 'push' || inputs.regenerar != false
+        if: github.event_name == 'workflow_dispatch' && inputs.regenerar != false
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
       - name: Instalar paquete Python
-        if: github.event_name == 'push' || inputs.regenerar != false
+        if: github.event_name == 'workflow_dispatch' && inputs.regenerar != false
         run: pip install -e .
 
       - name: Regenerar datos de revisión
-        if: github.event_name == 'push' || inputs.regenerar != false
+        if: github.event_name == 'workflow_dispatch' && inputs.regenerar != false
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: revisar --casos data/casos-demo.jsonl --todos --modo auto
+
+      - name: Commit datos.json si cambió
+        if: github.event_name == 'workflow_dispatch' && inputs.regenerar != false
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898729+github-actions[bot]@users.noreply.github.com"
+          if git diff --quiet -- web/public/datos.json; then
+            echo "web/public/datos.json sin cambios; no se hace commit."
+          else
+            git add web/public/datos.json
+            git commit -m "Actualiza resultados de la corrida [skip ci]"
+            git push
+          fi
 
       - uses: actions/setup-node@v4
         with:
