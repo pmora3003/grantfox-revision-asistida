@@ -1,5 +1,14 @@
 [
   {
+    "id": "casos-prueba-1",
+    "nombre": "Casos de prueba del TFG, corrida 1",
+    "archivo": "casos-prueba-1.json",
+    "generadaEn": "2026-10-07T06:57:08Z",
+    "motor": "real",
+    "modelo": "claude-sonnet-5-5",
+    "casos": 13
+  },
+  {
     "id": "corrida-1",
     "nombre": "Corrida 1",
     "archivo": "corrida-1.json",
