@@ -1,0 +1,11 @@
+[
+  {
+    "id": "corrida-1",
+    "nombre": "Corrida 1",
+    "archivo": "corrida-1.json",
+    "generadaEn": "2026-10-07T03:55:23Z",
+    "motor": "real",
+    "modelo": "claude-sonnet-5-5",
+    "casos": 12
+  }
+]

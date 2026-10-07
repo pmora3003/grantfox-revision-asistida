@@ -9,6 +9,18 @@ on:
         description: Regenerar datos.json con el pipeline Python
         type: boolean
         default: true
+      casos:
+        description: Archivo JSONL de casos para la corrida
+        type: string
+        default: data/casos-demo.jsonl
+      corrida_id:
+        description: Id de corrida (vacío = actualiza web/public/datos.json)
+        type: string
+        default: ""
+      corrida_nombre:
+        description: Nombre visible de la corrida
+        type: string
+        default: ""
 
 permissions:
   contents: write
@@ -55,17 +67,26 @@ jobs:
         if: github.event_name == 'workflow_dispatch' && inputs.regenerar != false
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-        run: revisar --casos data/casos-demo.jsonl --todos --modo auto
+          CASOS: ${{ inputs.casos }}
+          CORRIDA_ID: ${{ inputs.corrida_id }}
+          CORRIDA_NOMBRE: ${{ inputs.corrida_nombre }}
+        run: |
+          set -euo pipefail
+          CMD=(revisar --casos "$CASOS" --todos --modo auto)
+          if [ -n "$CORRIDA_ID" ]; then
+            CMD+=(--corrida-id "$CORRIDA_ID" --corrida-nombre "$CORRIDA_NOMBRE")
+          fi
+          "${CMD[@]}"
 
       - name: Commit datos.json si cambió
         if: github.event_name == 'workflow_dispatch' && inputs.regenerar != false
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898729+github-actions[bot]@users.noreply.github.com"
-          if git diff --quiet -- web/public/datos.json; then
-            echo "web/public/datos.json sin cambios; no se hace commit."
+          git add web/public/datos.json web/public/corridas/
+          if git diff --quiet --cached; then
+            echo "Sin cambios en datos publicados; no se hace commit."
           else
-            git add web/public/datos.json
             git commit -m "Actualiza resultados de la corrida [skip ci]"
             git push
           fi

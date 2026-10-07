@@ -8,13 +8,14 @@ import type {
 } from './types'
 import { modoDeSalida } from './modoEjecucion'
 
-export const DEMO_CORRIDA_ID = 'corrida-demo'
-export const DEMO_CORRIDA_NOMBRE = 'Corrida'
+/** Id legado; solo para filtrar datos antiguos en localStorage. */
+const LEGACY_DEMO_CORRIDA_ID = 'corrida-demo'
 
 const STORAGE_KEY = 'grantfox-corridas-v1'
 const TOUR_STEP_KEY = 'grantfox-recorrido-paso'
+const MIGRATION_CORRIDA_ID = 'corrida-1'
 
-type DemoProgress = {
+type CorridaProgress = {
   etapaActual: number
   iniciadaEn?: string
   finalizadaEn?: string
@@ -24,11 +25,11 @@ type DemoProgress = {
 
 type StoredPayload = {
   version: 1
-  demo: DemoProgress
+  precomputed: Record<string, CorridaProgress>
   userCorridas: Corrida[]
 }
 
-function emptyDemoProgress(): DemoProgress {
+function emptyCorridaProgress(): CorridaProgress {
   return {
     etapaActual: 0,
     itemEtapas: {},
@@ -39,8 +40,49 @@ function emptyDemoProgress(): DemoProgress {
 function defaultStored(): StoredPayload {
   return {
     version: 1,
-    demo: emptyDemoProgress(),
+    precomputed: {},
     userCorridas: [],
+  }
+}
+
+function normalizeProgress(raw: Partial<CorridaProgress> | undefined): CorridaProgress {
+  return {
+    etapaActual: Number(raw?.etapaActual) || 0,
+    iniciadaEn: raw?.iniciadaEn,
+    finalizadaEn: raw?.finalizadaEn,
+    itemEtapas:
+      raw?.itemEtapas && typeof raw.itemEtapas === 'object' ? { ...raw.itemEtapas } : {},
+    decisiones:
+      raw?.decisiones && typeof raw.decisiones === 'object' ? { ...raw.decisiones } : {},
+  }
+}
+
+function migrateLegacyPayload(parsed: Record<string, unknown>): StoredPayload {
+  const precomputed: Record<string, CorridaProgress> = {}
+
+  const legacyPrecomputed = parsed.precomputed
+  if (legacyPrecomputed && typeof legacyPrecomputed === 'object') {
+    for (const [id, prog] of Object.entries(legacyPrecomputed as Record<string, unknown>)) {
+      precomputed[id] = normalizeProgress(prog as Partial<CorridaProgress>)
+    }
+  }
+
+  if (parsed.demo != null && precomputed[MIGRATION_CORRIDA_ID] === undefined) {
+    precomputed[MIGRATION_CORRIDA_ID] = normalizeProgress(parsed.demo as Partial<CorridaProgress>)
+  }
+
+  const userCorridas = Array.isArray(parsed.userCorridas)
+    ? (parsed.userCorridas as Corrida[]).filter(
+        (c) =>
+          c?.id !== LEGACY_DEMO_CORRIDA_ID &&
+          c?.origen !== 'por_defecto',
+      )
+    : []
+
+  return {
+    version: 1,
+    precomputed,
+    userCorridas,
   }
 }
 
@@ -48,27 +90,9 @@ export function loadStoredCorridas(): StoredPayload {
   try {
     const raw = localStorage.getItem(STORAGE_KEY)
     if (!raw) return defaultStored()
-    const parsed = JSON.parse(raw) as StoredPayload
+    const parsed = JSON.parse(raw) as Record<string, unknown>
     if (!parsed || parsed.version !== 1) return defaultStored()
-    return {
-      version: 1,
-      demo: {
-        etapaActual: Number(parsed.demo?.etapaActual) || 0,
-        iniciadaEn: parsed.demo?.iniciadaEn,
-        finalizadaEn: parsed.demo?.finalizadaEn,
-        itemEtapas:
-          parsed.demo?.itemEtapas && typeof parsed.demo.itemEtapas === 'object'
-            ? parsed.demo.itemEtapas
-            : {},
-        decisiones:
-          parsed.demo?.decisiones && typeof parsed.demo.decisiones === 'object'
-            ? parsed.demo.decisiones
-            : {},
-      },
-      userCorridas: Array.isArray(parsed.userCorridas)
-        ? parsed.userCorridas.filter((c) => c?.id !== DEMO_CORRIDA_ID)
-        : [],
-    }
+    return migrateLegacyPayload(parsed)
   } catch {
     return defaultStored()
   }
@@ -92,9 +116,36 @@ export function saveStoredCorridas(payload: StoredPayload): PersistCorridasResul
   }
 }
 
-export function buildDemoCorrida(casos: CasoRevision[], progress?: DemoProgress): Corrida {
-  const p = progress ?? emptyDemoProgress()
-  const items: ItemCorrida[] = [...casos]
+export function isPrecomputedCorrida(c: Corrida): boolean {
+  return c.origen === 'por_defecto'
+}
+
+/** Corrida precalculada más reciente (recorrido guiado). */
+export function pickTourCorrida(corridas: Corrida[]): Corrida | null {
+  const pre = corridas.filter(isPrecomputedCorrida)
+  if (pre.length === 0) return null
+  return [...pre].sort((a, b) => (b.creadaEn || '').localeCompare(a.creadaEn || ''))[0]!
+}
+
+export function sortCorridasForInicio(list: Corrida[]): Corrida[] {
+  const pre = list.filter(isPrecomputedCorrida)
+  const user = list.filter((c) => !isPrecomputedCorrida(c))
+  pre.sort((a, b) => (b.creadaEn || '').localeCompare(a.creadaEn || ''))
+  user.sort((a, b) => (b.creadaEn || '').localeCompare(a.creadaEn || ''))
+  return [...pre, ...user]
+}
+
+export function buildPrecomputedCorrida(opts: {
+  id: string
+  nombre: string
+  casos: CasoRevision[]
+  generadaEn?: string
+  motor?: string
+  modelo?: string
+  progress?: CorridaProgress
+}): Corrida {
+  const p = opts.progress ?? emptyCorridaProgress()
+  const items: ItemCorrida[] = [...opts.casos]
     .sort((a, b) => b.salida.priority.score - a.salida.priority.score)
     .map((c) => ({
       id: c.entrada.id,
@@ -108,10 +159,19 @@ export function buildDemoCorrida(casos: CasoRevision[], progress?: DemoProgress)
     ? 'real'
     : 'reglas'
 
+  const motorPrecomputado =
+    opts.motor ??
+    (modoEjecucion === 'real' ? 'real' : 'reglas')
+  const modeloPrecomputado =
+    opts.modelo ?? opts.casos[0]?.salida.model?.name
+
   return {
-    id: DEMO_CORRIDA_ID,
-    nombre: DEMO_CORRIDA_NOMBRE,
-    creadaEn: casos[0]?.salida.executedAt ?? new Date().toISOString(),
+    id: opts.id,
+    nombre: opts.nombre,
+    creadaEn:
+      opts.generadaEn ??
+      opts.casos[0]?.salida.executedAt ??
+      new Date().toISOString(),
     origen: 'por_defecto',
     modoEjecucion,
     items,
@@ -119,10 +179,12 @@ export function buildDemoCorrida(casos: CasoRevision[], progress?: DemoProgress)
     iniciadaEn: p.iniciadaEn,
     finalizadaEn: p.finalizadaEn,
     decisiones: { ...p.decisiones },
+    motorPrecomputado,
+    modeloPrecomputado,
   }
 }
 
-export function corridaToDemoProgress(c: Corrida): DemoProgress {
+export function corridaToProgress(c: Corrida): CorridaProgress {
   const itemEtapas: Record<string, number> = {}
   for (const it of c.items) {
     itemEtapas[it.id] = it.etapaAlcanzada
@@ -136,8 +198,17 @@ export function corridaToDemoProgress(c: Corrida): DemoProgress {
   }
 }
 
-export function resetDemoProgress(): DemoProgress {
-  return emptyDemoProgress()
+export function resetCorridaProgress(): CorridaProgress {
+  return emptyCorridaProgress()
+}
+
+export function etiquetaMotorPrecomputado(motor: string | undefined, modelo?: string): string {
+  if (motor === 'real') {
+    if (modelo === 'claude-sonnet-5-5') return 'Claude Sonnet 5.5'
+    if (modelo) return modelo
+    return 'Modelo'
+  }
+  return 'Motor de reglas'
 }
 
 export function newCorridaId(): string {
@@ -177,11 +248,16 @@ export function createUserCorrida(opts: {
 }
 
 export function persistSnapshot(corridas: Corrida[]): PersistCorridasResult {
-  const demo = corridas.find((c) => c.id === DEMO_CORRIDA_ID)
-  const userCorridas = corridas.filter((c) => c.id !== DEMO_CORRIDA_ID)
+  const precomputed: Record<string, CorridaProgress> = {}
+  for (const c of corridas) {
+    if (isPrecomputedCorrida(c)) {
+      precomputed[c.id] = corridaToProgress(c)
+    }
+  }
+  const userCorridas = corridas.filter((c) => !isPrecomputedCorrida(c))
   const payload: StoredPayload = {
     version: 1,
-    demo: demo ? corridaToDemoProgress(demo) : emptyDemoProgress(),
+    precomputed,
     userCorridas,
   }
   return saveStoredCorridas(payload)

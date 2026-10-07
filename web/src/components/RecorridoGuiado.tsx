@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { ArrowLeft, ArrowRight, X } from 'lucide-react'
 import type { Corrida, ItemCorrida, Salida } from '../types'
 import { escala } from '../motor/config.generada'
-import { DEMO_CORRIDA_ID, loadTourStep, saveTourStep } from '../corridasStore'
+import { loadTourStep, saveTourStep } from '../corridasStore'
 import {
   bandLabel,
   formatCurrency,
@@ -29,7 +29,7 @@ type Metricas = {
 }
 
 type Props = {
-  demoCorrida: Corrida | null
+  tourCorrida: Corrida
   onSalir: () => void
   onAbrirPr: (itemId: string) => void
   /** Si se abrió un detalle desde el tour, mostrar pastilla flotante. */
@@ -73,7 +73,7 @@ function pickHighestPriorityAdmissible(items: ItemCorrida[]): ItemCorrida | null
 }
 
 export function RecorridoGuiado({
-  demoCorrida,
+  tourCorrida,
   onSalir,
   onAbrirPr,
   tourPaused,
@@ -123,8 +123,8 @@ export function RecorridoGuiado({
   }, [go, onSalir, tourPaused])
 
   const highlight = useMemo(
-    () => (demoCorrida ? pickHighestPriorityAdmissible(demoCorrida.items) : null),
-    [demoCorrida],
+    () => pickHighestPriorityAdmissible(tourCorrida.items),
+    [tourCorrida],
   )
 
   if (tourPaused) {
@@ -433,6 +433,3 @@ export function RecorridoGuiado({
   )
 }
 
-export function isDemoId(id: string): boolean {
-  return id === DEMO_CORRIDA_ID
-}

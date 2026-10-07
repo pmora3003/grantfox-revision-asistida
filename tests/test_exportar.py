@@ -62,6 +62,40 @@ def test_exportar_web_casos_prueba(tmp_path):
     assert "entrada" in payload[0] and "salida" in payload[0]
 
 
+def test_exportar_web_corrida_id(tmp_path, monkeypatch):
+    registros = cargar_golden(_CASOS_PRUEBA)
+    registro = registros[0]
+    salida = revisar(registro, modo="reglas")
+    guardar(salida, carpeta=tmp_path)
+
+    corridas_dir = tmp_path / "corridas"
+    index_path = corridas_dir / "index.json"
+    monkeypatch.setattr(
+        "revision.exportar._CORRIDAS_DIR",
+        corridas_dir,
+    )
+    monkeypatch.setattr(
+        "revision.exportar._INDEX_CORRIDAS",
+        index_path,
+    )
+
+    datos_web = _REPO / "web" / "public" / "datos.json"
+    antes = datos_web.read_text(encoding="utf-8") if datos_web.is_file() else None
+
+    ruta = exportar_web(
+        carpeta_runs=tmp_path,
+        casos_path=_CASOS_PRUEBA,
+        corrida_id="corrida-prueba",
+        corrida_nombre="Prueba",
+    )
+    assert ruta == corridas_dir / "corrida-prueba.json"
+    assert ruta.is_file()
+    indice = json.loads(index_path.read_text(encoding="utf-8"))
+    assert any(e["id"] == "corrida-prueba" for e in indice)
+    if antes is not None:
+        assert datos_web.read_text(encoding="utf-8") == antes
+
+
 def test_cli_no_exportar_golden(tmp_path, capsys):
     from revision.cli import main
 

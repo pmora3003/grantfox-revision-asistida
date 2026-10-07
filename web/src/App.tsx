@@ -1,12 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { CasoRevision, Corrida, DecisionHumana } from './types'
+import type { CasoRevision, Corrida, DecisionHumana, EntradaIndiceCorrida } from './types'
 import { procesarEntrada } from './motor'
 import {
-  DEMO_CORRIDA_ID,
-  buildDemoCorrida,
+  buildPrecomputedCorrida,
+  isPrecomputedCorrida,
   loadStoredCorridas,
   persistSnapshot,
-  resetDemoProgress,
+  pickTourCorrida,
+  resetCorridaProgress,
+  sortCorridasForInicio,
 } from './corridasStore'
 import { TOTAL_ETAPAS, stageAnimDelayMs, resumenTrasEtapa } from './etapas'
 import { applyTheme, loadThemePref, saveThemePref, type ThemePref } from './theme'
@@ -28,14 +30,6 @@ type View =
 function sleep(ms: number) {
   return new Promise<void>((resolve) => {
     window.setTimeout(resolve, ms)
-  })
-}
-
-function sortCorridas(list: Corrida[]): Corrida[] {
-  return [...list].sort((a, b) => {
-    if (a.id === DEMO_CORRIDA_ID) return -1
-    if (b.id === DEMO_CORRIDA_ID) return 1
-    return (b.creadaEn || '').localeCompare(a.creadaEn || '')
   })
 }
 
@@ -86,7 +80,7 @@ export default function App() {
   const updateCorridas = useCallback(
     (updater: (prev: Corrida[]) => Corrida[]) => {
       setCorridas((prev) => {
-        const next = sortCorridas(updater(prev))
+        const next = sortCorridasForInicio(updater(prev))
         persist(next)
         return next
       })
@@ -95,19 +89,60 @@ export default function App() {
   )
 
   useEffect(() => {
-    const url = `${import.meta.env.BASE_URL}datos.json`
-    fetch(url)
-      .then((r) => {
-        if (!r.ok) throw new Error(`HTTP ${r.status}`)
-        return r.json()
+    const base = import.meta.env.BASE_URL
+
+    async function loadFromDatosFallback(stored: ReturnType<typeof loadStoredCorridas>) {
+      const r = await fetch(`${base}datos.json`)
+      if (!r.ok) throw new Error(`HTTP ${r.status}`)
+      const data = (await r.json()) as CasoRevision[]
+      const fallback = buildPrecomputedCorrida({
+        id: 'corrida-1',
+        nombre: 'Corrida 1',
+        casos: data,
+        progress: stored.precomputed['corrida-1'],
       })
-      .then((data: CasoRevision[]) => {
-        const stored = loadStoredCorridas()
-        const demo = buildDemoCorrida(data, stored.demo)
-        setCorridas(sortCorridas([demo, ...stored.userCorridas]))
-      })
-      .catch((e: Error) => setLoadError(e.message ?? 'Error al cargar datos'))
-      .finally(() => setLoading(false))
+      setCorridas(sortCorridasForInicio([fallback, ...stored.userCorridas]))
+    }
+
+    async function load() {
+      const stored = loadStoredCorridas()
+      try {
+        const indexRes = await fetch(`${base}corridas/index.json`)
+        if (!indexRes.ok) throw new Error('index')
+        const entries = (await indexRes.json()) as EntradaIndiceCorrida[]
+        if (!Array.isArray(entries) || entries.length === 0) throw new Error('index')
+
+        const built: Corrida[] = []
+        for (const entry of entries) {
+          const fileRes = await fetch(`${base}corridas/${entry.archivo}`)
+          if (!fileRes.ok) throw new Error(entry.archivo)
+          const casos = (await fileRes.json()) as CasoRevision[]
+          built.push(
+            buildPrecomputedCorrida({
+              id: entry.id,
+              nombre: entry.nombre,
+              casos,
+              generadaEn: entry.generadaEn,
+              motor: entry.motor,
+              modelo: entry.modelo,
+              progress: stored.precomputed[entry.id],
+            }),
+          )
+        }
+        setCorridas(sortCorridasForInicio([...built, ...stored.userCorridas]))
+      } catch {
+        try {
+          await loadFromDatosFallback(stored)
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : 'Error al cargar datos'
+          setLoadError(msg)
+        }
+      } finally {
+        setLoading(false)
+      }
+    }
+
+    void load()
   }, [])
 
   const currentCorrida = useMemo(() => {
@@ -117,10 +152,8 @@ export default function App() {
     return null
   }, [view, corridas])
 
-  const demoCorrida = useMemo(
-    () => corridas.find((c) => c.id === DEMO_CORRIDA_ID) ?? null,
-    [corridas],
-  )
+  const tourCorrida = useMemo(() => pickTourCorrida(corridas), [corridas])
+  const tourCorridaId = tourCorrida?.id ?? null
 
   async function ensureSalidas(corrida: Corrida): Promise<Corrida> {
     const needs = corrida.items.some((i) => !i.salida)
@@ -303,7 +336,8 @@ export default function App() {
   const showTourPill =
     tourPaused &&
     (view.name === 'corrida' || view.name === 'detalle') &&
-    view.corridaId === DEMO_CORRIDA_ID
+    tourCorridaId != null &&
+    view.corridaId === tourCorridaId
 
   return (
     <div
@@ -344,14 +378,15 @@ export default function App() {
             setView({ name: 'recorrido' })
           }}
           onEliminar={(id) => {
-            if (id === DEMO_CORRIDA_ID) return
+            const c = corridas.find((x) => x.id === id)
+            if (c && isPrecomputedCorrida(c)) return
             updateCorridas((prev) => prev.filter((c) => c.id !== id))
           }}
-          onRestablecerDemo={() => {
+          onRestablecerPrecomputada={(id) => {
             updateCorridas((prev) =>
               prev.map((c) => {
-                if (c.id !== DEMO_CORRIDA_ID) return c
-                const p = resetDemoProgress()
+                if (c.id !== id) return c
+                const p = resetCorridaProgress()
                 return {
                   ...c,
                   etapaActual: p.etapaActual,
@@ -405,20 +440,20 @@ export default function App() {
         />
       )}
 
-      {view.name === 'recorrido' && !tourPaused && (
+      {view.name === 'recorrido' && !tourPaused && tourCorrida && (
         <RecorridoGuiado
-          demoCorrida={demoCorrida}
+          tourCorrida={tourCorrida}
           onSalir={() => setView({ name: 'inicio' })}
           onAbrirPr={(itemId) => {
             setTourPaused(true)
-            setView({ name: 'detalle', corridaId: DEMO_CORRIDA_ID, itemId })
+            setView({ name: 'detalle', corridaId: tourCorrida.id, itemId })
           }}
         />
       )}
 
-      {showTourPill && (
+      {showTourPill && tourCorrida && (
         <RecorridoGuiado
-          demoCorrida={demoCorrida}
+          tourCorrida={tourCorrida}
           tourPaused
           onSalir={() => setView({ name: 'inicio' })}
           onAbrirPr={() => undefined}

@@ -1,8 +1,9 @@
 import { Compass, Plus, RotateCcw, Trash2 } from 'lucide-react'
 import type { Corrida, RecomendacionValor } from '../types'
 import {
-  DEMO_CORRIDA_ID,
+  etiquetaMotorPrecomputado,
   formatFechaCorta,
+  isPrecomputedCorrida,
   origenLabel,
 } from '../corridasStore'
 import { etiquetaEstadoCorrida } from '../etapas'
@@ -16,7 +17,7 @@ type Props = {
   onNueva: () => void
   onRecorrido: () => void
   onEliminar: (id: string) => void
-  onRestablecerDemo: () => void
+  onRestablecerPrecomputada: (id: string) => void
 }
 
 function estadoClass(etapa: number): string {
@@ -31,7 +32,7 @@ export function InicioView({
   onNueva,
   onRecorrido,
   onEliminar,
-  onRestablecerDemo,
+  onRestablecerPrecomputada,
 }: Props) {
   return (
     <div className="inicio-view">
@@ -65,16 +66,27 @@ export function InicioView({
               ? contarRecomendaciones(c.items.map((i) => i.salida))
               : null
           const completed = c.etapaActual >= 5
-          const isDemo = c.id === DEMO_CORRIDA_ID
+          const precomputada = isPrecomputedCorrida(c)
 
           return (
             <article key={c.id} className="corrida-card" role="listitem">
               <div className="corrida-card-main">
                 <div className="corrida-card-title-row">
                   <h3>{c.nombre}</h3>
+                  {precomputada && (
+                    <span className="chip chip-neutral corrida-motor-chip">
+                      {etiquetaMotorPrecomputado(c.motorPrecomputado, c.modeloPrecomputado)}
+                    </span>
+                  )}
                 </div>
                 <p className="corrida-card-meta muted">
-                  {formatFechaCorta(c.creadaEn)}, {origenLabel(c.origen)}, {n} PR
+                  {formatFechaCorta(c.creadaEn)}
+                  {!precomputada && (
+                    <>
+                      , {origenLabel(c.origen)}
+                    </>
+                  )}
+                  , {n} PR
                 </p>
                 <p className={`corrida-estado ${estadoClass(c.etapaActual)}`}>
                   {etiquetaEstadoCorrida(c.etapaActual)}
@@ -126,11 +138,11 @@ export function InicioView({
                 >
                   Abrir
                 </button>
-                {isDemo ? (
+                {precomputada ? (
                   <button
                     type="button"
                     className="btn btn-ghost"
-                    onClick={onRestablecerDemo}
+                    onClick={() => onRestablecerPrecomputada(c.id)}
                     title="Restablecer progreso de la corrida"
                   >
                     <RotateCcw size={15} aria-hidden /> Restablecer
@@ -152,7 +164,9 @@ export function InicioView({
       </div>
 
       {corridas.length === 0 && (
-        <p className="empty-state-hint">No hay corridas. Cree una nueva o restaure la demo.</p>
+        <p className="empty-state-hint">
+          No hay corridas. Cree una nueva o use el recorrido guiado.
+        </p>
       )}
     </div>
   )

@@ -21,10 +21,11 @@ from revision.normalizar import cargar_golden, normalizar
 
 _GOLDEN_DEFAULT = _REPO_ROOT / "data" / "golden-set.jsonl"
 _SALIDA_DEFAULT = _REPO_ROOT / "data" / "casos-demo.jsonl"
-_SEMILLA = 42
-_CANTIDAD = 12
-_INADMISIBLE = 3
-_ADMISIBLE = 9
+_N_DEFAULT = 12
+_SEMILLA_DEFAULT = 42
+_PREFIJO_ID_DEFAULT = 1
+_PROP_INADM = 3
+_PROP_TOTAL = 12
 
 
 def _repo_path(path: str | Path) -> Path:
@@ -98,7 +99,23 @@ def _elegir_n(
     return elegidos
 
 
-def seleccionar(perfiles: list[dict[str, Any]], rng: random.Random) -> list[dict[str, Any]]:
+def _cuotas(n: int) -> tuple[int, int]:
+    """Inadmisibles (minimo 2) y admisibles segun n."""
+    if n < 2:
+        raise ValueError("--n debe ser al menos 2")
+    inadm = max(2, round(n * _PROP_INADM / _PROP_TOTAL))
+    if inadm >= n:
+        inadm = n - 1
+    return inadm, n - inadm
+
+
+def seleccionar(
+    perfiles: list[dict[str, Any]],
+    rng: random.Random,
+    n: int,
+) -> list[dict[str, Any]]:
+    n_inadm, n_adm = _cuotas(n)
+    cantidad = n_inadm + n_adm
     usados: set[str] = set()
     orden: list[dict[str, Any]] = []
 
@@ -115,17 +132,17 @@ def seleccionar(perfiles: list[dict[str, Any]], rng: random.Random) -> list[dict
             usados.add(pick["orig_id"])
             orden.append(pick)
 
-    faltan_inadm = _INADMISIBLE - len(orden)
+    faltan_inadm = n_inadm - len(orden)
     if faltan_inadm > 0:
         orden.extend(_elegir_n(ca002, faltan_inadm, rng, usados))
 
-    faltan_inadm = _INADMISIBLE - len(orden)
+    faltan_inadm = n_inadm - len(orden)
     if faltan_inadm > 0:
         orden.extend(_elegir_n(otros_inadm, faltan_inadm, rng, usados))
 
-    if len(orden) < _INADMISIBLE:
+    if len(orden) < n_inadm:
         resto = [p for p in inadm if p["orig_id"] not in usados]
-        orden.extend(_elegir_n(resto, _INADMISIBLE - len(orden), rng, usados))
+        orden.extend(_elegir_n(resto, n_inadm - len(orden), rng, usados))
 
     quotas_adm = [
         ("ci_falla", lambda p: p["ci_falla"]),
@@ -134,7 +151,7 @@ def seleccionar(perfiles: list[dict[str, Any]], rng: random.Random) -> list[dict
         ("monto_alto", lambda p: p["monto_alto"]),
     ]
     for _nombre, pred in quotas_adm:
-        if len(orden) >= _INADMISIBLE + _ADMISIBLE:
+        if len(orden) >= cantidad:
             break
         pool = [p for p in adm if pred(p)]
         pick = _elegir_uno(pool, rng, usados)
@@ -142,7 +159,7 @@ def seleccionar(perfiles: list[dict[str, Any]], rng: random.Random) -> list[dict
             usados.add(pick["orig_id"])
             orden.append(pick)
 
-    while len(orden) < _INADMISIBLE + _ADMISIBLE:
+    while len(orden) < cantidad:
         pool = [p for p in adm if p["orig_id"] not in usados]
         pick = _elegir_uno(pool, rng, usados)
         if pick is None:
@@ -150,32 +167,47 @@ def seleccionar(perfiles: list[dict[str, Any]], rng: random.Random) -> list[dict
         usados.add(pick["orig_id"])
         orden.append(pick)
 
-    if len(orden) != _CANTIDAD:
+    if len(orden) != cantidad:
         raise RuntimeError(
-            f"No se pudieron elegir {_CANTIDAD} casos (se obtuvieron {len(orden)})"
+            f"No se pudieron elegir {cantidad} casos (se obtuvieron {len(orden)})"
         )
     return orden
 
 
-def _escribir_casos(elegidos: list[dict[str, Any]], destino: Path) -> None:
+def _cargar_prurls_excluir(ruta: Path) -> set[str]:
+    urls: set[str] = set()
+    for registro in cargar_golden(ruta):
+        ctx = registro.get("context") or {}
+        if isinstance(ctx, dict):
+            url = ctx.get("prUrl")
+            if url:
+                urls.add(str(url))
+    return urls
+
+
+def _escribir_casos(
+    elegidos: list[dict[str, Any]],
+    destino: Path,
+    prefijo_id: int,
+) -> None:
     destino.parent.mkdir(parents=True, exist_ok=True)
     with destino.open("w", encoding="utf-8") as fh:
-        for i, perfil in enumerate(elegidos, start=1):
+        for i, perfil in enumerate(elegidos):
             caso = normalizar(perfil["registro"])
-            caso["id"] = f"PR-{i:02d}"
+            caso["id"] = f"PR-{prefijo_id + i:02d}"
             fh.write(json.dumps(caso, ensure_ascii=False) + "\n")
 
 
-def _imprimir_tabla(elegidos: list[dict[str, Any]]) -> None:
+def _imprimir_tabla(elegidos: list[dict[str, Any]], prefijo_id: int) -> None:
     cols = ("demo_id", "orig_id", "files", "amount", "ci", "truncated", "stoppedAt")
     filas: list[tuple[str, ...]] = []
-    for i, p in enumerate(elegidos, start=1):
+    for i, p in enumerate(elegidos):
         stopped = p["stopped_at"] if p["stopped_at"] else "-"
         trunc = "true" if p["truncated"] else "false"
         amt = p["requested_amount"]
         filas.append(
             (
-                f"PR-{i:02d}",
+                f"PR-{prefijo_id + i:02d}",
                 p["orig_id"][:20] + ("..." if len(p["orig_id"]) > 20 else ""),
                 str(p["n_files"]),
                 str(amt),
@@ -210,18 +242,48 @@ def main() -> None:
         default=str(_SALIDA_DEFAULT),
         help="Archivo JSONL de salida (default: data/casos-demo.jsonl)",
     )
+    parser.add_argument(
+        "--n",
+        type=int,
+        default=_N_DEFAULT,
+        help=f"Cantidad de casos (default: {_N_DEFAULT})",
+    )
+    parser.add_argument(
+        "--semilla",
+        type=int,
+        default=_SEMILLA_DEFAULT,
+        help=f"Semilla aleatoria (default: {_SEMILLA_DEFAULT})",
+    )
+    parser.add_argument(
+        "--excluir",
+        default=None,
+        help="JSONL existente: se omiten registros con el mismo context.prUrl",
+    )
+    parser.add_argument(
+        "--prefijo-id",
+        type=int,
+        default=_PREFIJO_ID_DEFAULT,
+        help=f"Numero inicial para ids PR-XX (default: {_PREFIJO_ID_DEFAULT})",
+    )
     args = parser.parse_args()
 
     golden = _repo_path(args.golden)
     salida = _repo_path(args.salida)
     config = cargar_admisibilidad()
     registros = cargar_golden(golden)
+    if args.excluir:
+        excluir_urls = _cargar_prurls_excluir(_repo_path(args.excluir))
+        registros = [
+            r
+            for r in registros
+            if str((r.get("context") or {}).get("prUrl") or "") not in excluir_urls
+        ]
     perfiles = [_perfil(r, config) for r in registros]
-    rng = random.Random(_SEMILLA)
-    elegidos = seleccionar(perfiles, rng)
-    _escribir_casos(elegidos, salida)
+    rng = random.Random(args.semilla)
+    elegidos = seleccionar(perfiles, rng, args.n)
+    _escribir_casos(elegidos, salida, args.prefijo_id)
     print(f"Escrito: {salida.relative_to(_REPO_ROOT)}")
-    _imprimir_tabla(elegidos)
+    _imprimir_tabla(elegidos, args.prefijo_id)
 
 
 if __name__ == "__main__":

@@ -89,6 +89,20 @@ def main(argv: list[str] | None = None) -> None:
         help="No escribir web/public/datos.json tras revisar (p. ej. golden set local)",
     )
     parser.add_argument(
+        "--corrida-id",
+        default=None,
+        metavar="ID",
+        help=(
+            "Exporta a web/public/corridas/<ID>.json e index.json "
+            "(no escribe web/public/datos.json)"
+        ),
+    )
+    parser.add_argument(
+        "--corrida-nombre",
+        default=None,
+        help="Nombre visible de la corrida (con --corrida-id)",
+    )
+    parser.add_argument(
         "--decidir",
         action="store_true",
         help="Registrar decision humana sobre una recomendacion previa (RF16)",
@@ -184,7 +198,12 @@ def main(argv: list[str] | None = None) -> None:
         and (args.exportar_web or (not solo_exportar and casos_dado))
     )
     if debe_exportar:
-        ruta = exportar_web(carpeta_runs=args.salida, casos_path=args.casos)
+        ruta = exportar_web(
+            carpeta_runs=args.salida,
+            casos_path=args.casos,
+            corrida_id=args.corrida_id,
+            corrida_nombre=args.corrida_nombre,
+        )
         if ruta is not None:
             try:
                 etiqueta = ruta.relative_to(_REPO_ROOT)

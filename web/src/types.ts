@@ -224,6 +224,17 @@ export interface DecisionHumana {
 /** Origen de una corrida (lote de PR). */
 export type OrigenCorrida = 'por_defecto' | 'enlaces' | 'archivo'
 
+/** Entrada del índice de corridas precalculadas (`corridas/index.json`). */
+export interface EntradaIndiceCorrida {
+  id: string
+  nombre: string
+  archivo: string
+  generadaEn: string
+  motor: string
+  modelo?: string
+  casos: number
+}
+
 /**
  * Ítem dentro de una corrida.
  * `salida` precalculada (demo) o calculada al iniciar (corridas de usuario).
@@ -252,6 +263,9 @@ export interface Corrida {
   finalizadaEn?: string
   /** Decisiones humanas indexadas por contributionId. */
   decisiones?: Record<string, DecisionHumana>
+  /** Metadatos del índice de corridas precalculadas (solo origen por_defecto). */
+  motorPrecomputado?: string
+  modeloPrecomputado?: string
 }
 
 export const DIMENSION_ORDER: DimensionNombre[] = [
