@@ -8,13 +8,44 @@ import re
 from pathlib import Path
 from typing import Any
 
+from revision.clasificar import clasificar_archivo
 from revision.config import ConfigEscala, cargar_escala, umbral_spike
 from revision.marcos import anotar_criterio
 from revision.normalizar import anonimizar_texto
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
-_RUTA_INSTRUCCION = _REPO_ROOT / "prompts" / "instruccion_v1.md"
+_RUTA_INSTRUCCION = _REPO_ROOT / "prompts" / "instruccion_v2.md"
 _DIFF_MAX = 60000
+
+# Orden de los bloques del conjunto de diferencias antes de aplicar el tope:
+# primero el trabajo propio (codigo, pruebas, configuracion) y al final lo que
+# el volumen real descuenta (documentacion y archivos generados).
+_ORDEN_TIPO = {
+    "codigo": 0,
+    "pruebas": 1,
+    "configuracion": 2,
+    "documentacion": 3,
+    "generado": 4,
+}
+_RE_INICIO_ARCHIVO = re.compile(r"^diff --git a/(\S+)", re.M)
+
+
+def ordenar_diff_por_tipo(diff: str) -> str:
+    """Reordena los bloques por tipo de archivo; dentro de cada tipo conserva el orden."""
+    inicios = list(_RE_INICIO_ARCHIVO.finditer(diff))
+    if len(inicios) < 2:
+        return diff
+    preambulo = diff[: inicios[0].start()]
+    bloques: list[tuple[int, int, str]] = []
+    for i, m in enumerate(inicios):
+        fin = inicios[i + 1].start() if i + 1 < len(inicios) else len(diff)
+        bloque = diff[m.start() : fin]
+        if not bloque.endswith("\n"):
+            bloque += "\n"
+        orden = _ORDEN_TIPO.get(clasificar_archivo(m.group(1)), 2)
+        bloques.append((orden, i, bloque))
+    bloques.sort(key=lambda b: (b[0], b[1]))
+    return preambulo + "".join(b[2] for b in bloques)
 
 DIMENSIONES = (
     "cumplimiento_alcance",
@@ -89,7 +120,7 @@ def version_instruccion(ruta: Path | None = None) -> str:
     for linea in texto.splitlines()[:10]:
         if linea.startswith("version:"):
             return linea.split(":", 1)[1].strip()
-    return "instruccion-v1"
+    return "instruccion-v2"
 
 
 def _formatear_escala(config: ConfigEscala) -> str:
@@ -236,6 +267,7 @@ def construir_mensaje_usuario(
         diff = str(diff)
     truncado = bool(ctx.get("truncated"))
     diff_capado = False
+    diff = ordenar_diff_por_tipo(diff)
     if len(diff) > _DIFF_MAX:
         diff = diff[:_DIFF_MAX]
         diff_capado = True
@@ -253,7 +285,8 @@ def construir_mensaje_usuario(
     ]
     if diff_capado:
         partes.append(
-            f"Nota: el conjunto de diferencias se corto a {_DIFF_MAX} caracteres; "
+            "Nota: los archivos van ordenados por tipo (codigo, pruebas, configuracion, "
+            f"documentacion, generados) y el conjunto se corto a {_DIFF_MAX} caracteres; "
             "tratar como truncado."
         )
 

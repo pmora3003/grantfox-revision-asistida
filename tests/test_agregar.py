@@ -4,7 +4,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from revision.agregar import agregar, agregar_recomendacion, _banda_confianza
+import pytest
+
+from revision.agregar import agregar, agregar_recomendacion, agregar_reward, _banda_confianza
 from revision.analizar import CODIGOS_POR_DIMENSION, criterios_insuficientes
 from revision.config import cargar_escala
 from revision.esquema import Salida
@@ -76,9 +78,9 @@ def test_cr012_no_cumple_solo_no_rechaza():
     assert rec["value"] == "aprobar"
 
 
-def test_alta_no_cumple_rechaza():
+def test_rechazo_directo_no_cumple_rechaza():
     cfg = cargar_escala()
-    criterios = _criterios_base({"CR-001": "no_cumple"})
+    criterios = _criterios_base({"CR-003": "no_cumple"})
     adm = {"outcome": "admisible", "stoppedAt": None, "conditions": []}
     meta = {"tareaCorresponde": True, "dependeInformacionExterna": False}
     reward = {
@@ -91,7 +93,49 @@ def test_alta_no_cumple_rechaza():
     confidence = {"score": 1.0, "band": "alto", "supervision": "confirmacion", "reasons": []}
     rec = agregar_recomendacion(adm, criterios, reward, confidence, meta, cfg)
     assert rec["value"] == "rechazar"
-    assert "CR-001" in rec["supportingCriteria"]
+    assert "CR-003" in rec["supportingCriteria"]
+
+
+@pytest.mark.parametrize("codigo", ["CR-001", "CR-011", "CR-014"])
+def test_criterio_que_deriva_no_rechaza(codigo):
+    cfg = cargar_escala()
+    criterios = _criterios_base({codigo: "no_cumple"})
+    adm = {"outcome": "admisible", "stoppedAt": None, "conditions": []}
+    meta = {"tareaCorresponde": True, "dependeInformacionExterna": False}
+    reward = {
+        "requestedAmount": 50,
+        "requestedLevel": "medio",
+        "suggestedLevel": "medio",
+        "suggestedAmount": 50,
+        "levelMismatch": False,
+    }
+    confidence = {"score": 1.0, "band": "alto", "supervision": "confirmacion", "reasons": []}
+    rec = agregar_recomendacion(adm, criterios, reward, confidence, meta, cfg)
+    assert rec["value"] == "derivar_revision_humana"
+    assert codigo in rec["supportingCriteria"]
+    assert codigo in rec["justification"]
+
+
+def test_rechazo_directo_precede_a_derivacion():
+    cfg = cargar_escala()
+    criterios = _criterios_base({"CR-001": "no_cumple", "CR-016": "no_cumple"})
+    adm = {"outcome": "admisible", "stoppedAt": None, "conditions": []}
+    meta = {"tareaCorresponde": True, "dependeInformacionExterna": False}
+    reward = {
+        "requestedAmount": 50,
+        "requestedLevel": "medio",
+        "suggestedLevel": "medio",
+        "suggestedAmount": 50,
+        "levelMismatch": False,
+    }
+    confidence = {"score": 1.0, "band": "alto", "supervision": "confirmacion", "reasons": []}
+    rec = agregar_recomendacion(adm, criterios, reward, confidence, meta, cfg)
+    assert rec["value"] == "rechazar"
+    assert rec["supportingCriteria"] == ["CR-016"]
+
+
+def test_cr011_en_severidad_media():
+    assert cargar_escala().severidad["CR-011"] == "media"
 
 
 def test_dependencia_externa_deriva():
@@ -243,9 +287,9 @@ def test_dependencia_externa_sigue_antes_que_mismatch_bajo():
     assert rec["value"] == "derivar_revision_humana"
 
 
-def test_alta_no_cumple_sigue_antes_que_mismatch_bajo():
+def test_rechazo_directo_sigue_antes_que_mismatch_bajo():
     cfg = cargar_escala()
-    criterios = _criterios_base({"CR-001": "no_cumple"})
+    criterios = _criterios_base({"CR-003": "no_cumple"})
     adm = {"outcome": "admisible", "stoppedAt": None, "conditions": []}
     meta = {
         "tareaCorresponde": None,
@@ -336,3 +380,34 @@ def test_bandas_confianza_limites():
     assert _banda_confianza(0.84, conf) == "medio"
     assert _banda_confianza(0.60, conf) == "medio"
     assert _banda_confianza(0.59, conf) == "bajo"
+
+
+def test_no_admisible_sin_monto_sugerido():
+    cfg = cargar_escala()
+    reward = agregar_reward(90, {}, cfg, {"outcome": "no_admisible", "stoppedAt": "CA-001"})
+    assert reward["suggestedLevel"] is None
+    assert reward["suggestedAmount"] is None
+    assert reward["levelMismatch"] is False
+    assert reward["requestedAmount"] == 90
+
+
+def test_limite_fijo_de_informacion_externa():
+    from revision.agregar import LIMITE_INFORMACION_EXTERNA, agregar_limits
+
+    adm = {"outcome": "admisible", "stoppedAt": None, "conditions": []}
+    entrada = {"id": "x", "context": {"diff": "", "truncated": False}, "requested_amount": 50}
+    limits = agregar_limits(adm, entrada, {"dependeInformacionExterna": False})
+    assert LIMITE_INFORMACION_EXTERNA in limits
+
+
+def test_diff_ordenado_por_tipo_antes_del_tope():
+    from revision.analizar import ordenar_diff_por_tipo
+
+    diff = (
+        "diff --git a/README_ENTREGA.md b/README_ENTREGA.md\n+doc\n"
+        "diff --git a/pnpm-lock.yaml b/pnpm-lock.yaml\n+lock\n"
+        "diff --git a/tests/race_test.rs b/tests/race_test.rs\n+prueba\n"
+        "diff --git a/src/settlement.rs b/src/settlement.rs\n+codigo"
+    )
+    orden = [l.split(" b/")[0][len("diff --git a/"):] for l in ordenar_diff_por_tipo(diff).splitlines() if l.startswith("diff --git")]
+    assert orden == ["src/settlement.rs", "tests/race_test.rs", "README_ENTREGA.md", "pnpm-lock.yaml"]

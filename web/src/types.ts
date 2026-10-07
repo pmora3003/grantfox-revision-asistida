@@ -124,7 +124,7 @@ export interface Reward {
   requestedAmount: number
   requestedLevel: NivelRecompensa | null
   suggestedLevel: NivelRecompensa | null
-  suggestedAmount: number
+  suggestedAmount: number | null
   levelMismatch: boolean
 }
 

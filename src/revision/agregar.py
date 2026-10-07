@@ -33,6 +33,13 @@ _ETIQUETA_NIVEL = {
     "evidencia_insuficiente": "evidencia insuficiente",
     "no_verificable": "no verificable",
 }
+# RF-12: situación que el análisis nunca resuelve con los insumos de la solicitud.
+LIMITE_INFORMACION_EXTERNA = (
+    "Las decisiones que dependen de información ajena a la solicitud, como la "
+    "política de distribución de pagos por persona contribuidora o el presupuesto "
+    "de la campaña, no se resuelven con este análisis"
+)
+
 _RESUMEN_APROBAR_ORDEN: list[tuple[str, str, int]] = [
     ("cumplimiento_alcance", "Alcance", 5),
     ("calidad_tecnica", "calidad técnica", 7),
@@ -78,10 +85,21 @@ def agregar_reward(
     requested_amount: int | float | None,
     meta: dict[str, Any],
     config: ConfigEscala | None = None,
+    admissibility: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     cfg = config or cargar_escala()
     monto = int(requested_amount or 0)
     requested_level = nivel_para_monto(monto, cfg)
+
+    # Sin admisibilidad no hay análisis de proporcionalidad: no se sugiere nivel ni monto.
+    if (admissibility or {}).get("outcome") == "no_admisible":
+        return {
+            "requestedAmount": monto,
+            "requestedLevel": requested_level,
+            "suggestedLevel": None,
+            "suggestedAmount": None,
+            "levelMismatch": False,
+        }
 
     suggested_level = meta.get("suggestedLevel") or requested_level or "bajo"
     if suggested_level not in ("bajo", "medio", "alto", "spike"):
@@ -271,6 +289,27 @@ def _n_cumplen_desde_assessment(assessment: str) -> int:
     return int(m.group(1)) if m else 0
 
 
+def _resumen_niveles(etiqueta: str, niveles: list[str]) -> str:
+    """Resume los niveles de una dimensión: cuántos cumplen, parcialmente, no y sin evidencia."""
+    total = len(niveles)
+    n_ok = niveles.count("cumple")
+    n_parcial = niveles.count("cumple_parcialmente")
+    n_no = niveles.count("no_cumple")
+    n_insuf = total - n_ok - n_parcial - n_no
+
+    def verbo(n: int) -> str:
+        return "cumple" if n == 1 else "cumplen"
+
+    detalle = [f"{n_ok} de {total} {verbo(n_ok)}"]
+    if n_parcial:
+        detalle.append(f"{n_parcial} {verbo(n_parcial)} parcialmente")
+    if n_no:
+        detalle.append(f"{n_no} no {verbo(n_no)}")
+    if n_insuf:
+        detalle.append(f"{n_insuf} con evidencia insuficiente")
+    return f"{etiqueta}: " + ", ".join(detalle)
+
+
 def _frase_criterio(c: dict[str, Any]) -> str:
     codigo = str(c.get("code") or "")
     nivel = _ETIQUETA_NIVEL.get(str(c.get("level") or ""), str(c.get("level") or ""))
@@ -312,6 +351,15 @@ def _justificacion_parrafo(
             f"humana previa: {just}."
         )
 
+    if value == "derivar_revision_humana" and codes:
+        frases = [_frase_criterio(por_codigo[c]) for c in codes if c in por_codigo]
+        return (
+            "Se recomienda derivar a revisión humana. "
+            + ". ".join(frases)
+            + ". Este criterio no basta por sí solo para rechazar y la decisión "
+            "queda en manos de la persona revisora."
+        )
+
     if value == "derivar_revision_humana":
         reasons = list(confidence.get("reasons") or [])
         detalle = "; ".join(reasons) if reasons else "Confianza baja"
@@ -326,13 +374,19 @@ def _justificacion_parrafo(
             str(d.get("dimension") or ""): d for d in (dimensions or [])
         }
         partes: list[str] = []
-        for idx, (dim_key, etiqueta, total) in enumerate(_RESUMEN_APROBAR_ORDEN):
-            assessment = str(por_dim.get(dim_key, {}).get("assessment") or "")
-            n_ok = _n_cumplen_desde_assessment(assessment)
-            if idx == 0:
-                partes.append(f"{etiqueta}: {n_ok} de {total} cumplen")
-            else:
-                partes.append(f"{etiqueta}: {n_ok} de {total}")
+        for dim_key, etiqueta, total in _RESUMEN_APROBAR_ORDEN:
+            niveles = [
+                str(c.get("level") or "")
+                for c in por_codigo.values()
+                if str(c.get("dimension") or "") == dim_key
+            ]
+            if not niveles:
+                assessment = str(por_dim.get(dim_key, {}).get("assessment") or "")
+                partes.append(
+                    f"{etiqueta}: {_n_cumplen_desde_assessment(assessment)} de {total} cumplen"
+                )
+                continue
+            partes.append(_resumen_niveles(etiqueta, niveles))
         resumen = "; ".join(partes)
         rw = reward or {}
         monto = int(rw.get("requestedAmount") or 0)
@@ -342,7 +396,8 @@ def _justificacion_parrafo(
             "coincide con el nivel sugerido."
         )
         return (
-            "Se recomienda aprobar. Ningún criterio de severidad alta queda sin cumplir. "
+            "Se recomienda aprobar. Ningún criterio que motive rechazo o derivación "
+            "queda sin cumplir. "
             f"{resumen}. {linea_reward}"
         )
 
@@ -429,18 +484,34 @@ def agregar_recomendacion(
             reward,
         )
 
-    altas_no: list[str] = []
-    for codigo, c in por_codigo.items():
-        if codigo == "CR-012":
-            continue
-        if c.get("level") != "no_cumple":
-            continue
-        if cfg.severidad.get(codigo) == "alta":
-            altas_no.append(codigo)
-    if altas_no:
+    reglas_rec = cfg.recomendacion or {}
+    rechazo_directo = [str(c) for c in reglas_rec.get("rechazo_directo") or []]
+    derivar_si_no = [str(c) for c in reglas_rec.get("derivar_si_no_cumple") or []]
+
+    rechazos = [
+        c for c in rechazo_directo
+        if (por_codigo.get(c) or {}).get("level") == "no_cumple"
+    ]
+    if rechazos:
         return _recomendacion_con_fundamentos(
             "rechazar",
-            altas_no,
+            rechazos,
+            por_codigo,
+            admissibility,
+            dimensions,
+            meta,
+            confidence,
+            reward,
+        )
+
+    derivaciones = [
+        c for c in derivar_si_no
+        if (por_codigo.get(c) or {}).get("level") == "no_cumple"
+    ]
+    if derivaciones:
+        return _recomendacion_con_fundamentos(
+            "derivar_revision_humana",
+            derivaciones,
             por_codigo,
             admissibility,
             dimensions,
@@ -569,6 +640,7 @@ def agregar_limits(
     limits = [
         "CA-005 no verificable con el insumo disponible",
         "Contenido de los comentarios de revisión no disponible",
+        LIMITE_INFORMACION_EXTERNA,
     ]
     if insumo_truncado(entrada, meta):
         limits.append("Conjunto de diferencias truncado")
@@ -623,7 +695,7 @@ def agregar(
     criterios = anotar_criterios(criterios)
 
     dimensions = agregar_dimensiones(criterios)
-    reward = agregar_reward(entrada.get("requested_amount"), meta, cfg)
+    reward = agregar_reward(entrada.get("requested_amount"), meta, cfg, admissibility)
     confidence = agregar_confianza(admissibility, criterios, entrada, meta, cfg)
     recommendation = agregar_recomendacion(
         admissibility, criterios, reward, confidence, meta, cfg, dimensions

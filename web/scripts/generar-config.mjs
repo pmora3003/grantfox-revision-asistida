@@ -16,7 +16,7 @@ const repoRoot = resolve(webRoot, '..')
 const escalaPath = join(repoRoot, 'config', 'escala.yaml')
 const admPath = join(repoRoot, 'config', 'admisibilidad.yaml')
 const marcosPath = join(repoRoot, 'config', 'marcos.yaml')
-const promptPath = join(repoRoot, 'prompts', 'instruccion_v1.md')
+const promptPath = join(repoRoot, 'prompts', 'instruccion_v2.md')
 const outPath = join(webRoot, 'src', 'motor', 'config.generada.ts')
 
 const escalaRaw = parseYaml(readFileSync(escalaPath, 'utf8'))
@@ -50,6 +50,7 @@ const escala = {
   techo_observado:
     escalaRaw.techo_observado == null ? null : Number(escalaRaw.techo_observado),
   reglas: { ...(escalaRaw.reglas || escalaRaw.simulado || {}) },
+  recomendacion: { ...(escalaRaw.recomendacion || {}) },
   raw: escalaRaw,
 }
 
@@ -86,7 +87,7 @@ function versionInstruccion(texto) {
       return linea.split(':', 2)[1].trim()
     }
   }
-  return 'instruccion-v1'
+  return 'instruccion-v2'
 }
 
 function textoInstruccionBase(texto) {

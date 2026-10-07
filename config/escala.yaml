@@ -1,5 +1,5 @@
-version: "1.0"
-fecha: "2026-09-30"
+version: "1.1"
+fecha: "2026-10-07"
 
 niveles:
   - nombre: bajo
@@ -48,7 +48,7 @@ severidad:
   CR-008: media
   CR-009: baja
   CR-010: alta
-  CR-011: alta
+  CR-011: media
   CR-012: baja
   CR-013: alta
   CR-014: alta
@@ -61,6 +61,14 @@ severidad:
   CR-021: baja
   CR-022: media
   CR-023: media
+
+# Reglas de recomendacion que dependen de criterios concretos (decision del
+# proyecto). Un criterio de rechazo_directo en no_cumple produce rechazo; uno de
+# derivar_si_no_cumple en no_cumple deriva a revision humana. Los pesos de
+# pesos_severidad solo ordenan la cola (RF-15).
+recomendacion:
+  rechazo_directo: [CR-003, CR-010, CR-013, CR-016]
+  derivar_si_no_cumple: [CR-001, CR-011, CR-014]
 
 pesos_severidad:
   alta: 3

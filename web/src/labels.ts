@@ -96,7 +96,8 @@ export function caResultLabel(r: ResultadoCA): string {
   return map[r]
 }
 
-export function formatCurrency(amount: number): string {
+export function formatCurrency(amount: number | null | undefined): string {
+  if (amount == null) return 'No aplica'
   const n = new Intl.NumberFormat('es-CR', { maximumFractionDigits: 0 }).format(amount)
   return `${n} USDC`
 }

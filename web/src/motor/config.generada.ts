@@ -1,12 +1,12 @@
 /* eslint-disable */
 // Generado por web/scripts/generar-config.mjs. No editar a mano.
 
-export const instructionVersion = "instruccion-v1" as const
-export const instructionHash = "0eb3c0b4b5f5f1f150a8333b7526c1391d4a9d83f6d1ea0c49abaf3cc92a9203" as const
+export const instructionVersion = "instruccion-v2" as const
+export const instructionHash = "318660d05760bc0158cd0542fd3aaff122f8bb6d8b78f6243877f6b1c5204209" as const
 
 export const escala = {
-  "version": "1.0",
-  "fecha": "2026-09-30",
+  "version": "1.1",
+  "fecha": "2026-10-07",
   "niveles": [
     {
       "nombre": "bajo",
@@ -52,7 +52,7 @@ export const escala = {
     "CR-008": "media",
     "CR-009": "baja",
     "CR-010": "alta",
-    "CR-011": "alta",
+    "CR-011": "media",
     "CR-012": "baja",
     "CR-013": "alta",
     "CR-014": "alta",
@@ -85,9 +85,22 @@ export const escala = {
     "archivos_alto": 10,
     "archivos_spike": 15
   },
+  "recomendacion": {
+    "rechazo_directo": [
+      "CR-003",
+      "CR-010",
+      "CR-013",
+      "CR-016"
+    ],
+    "derivar_si_no_cumple": [
+      "CR-001",
+      "CR-011",
+      "CR-014"
+    ]
+  },
   "raw": {
-    "version": "1.0",
-    "fecha": "2026-09-30",
+    "version": "1.1",
+    "fecha": "2026-10-07",
     "niveles": [
       {
         "nombre": "bajo",
@@ -142,7 +155,7 @@ export const escala = {
       "CR-008": "media",
       "CR-009": "baja",
       "CR-010": "alta",
-      "CR-011": "alta",
+      "CR-011": "media",
       "CR-012": "baja",
       "CR-013": "alta",
       "CR-014": "alta",
@@ -155,6 +168,19 @@ export const escala = {
       "CR-021": "baja",
       "CR-022": "media",
       "CR-023": "media"
+    },
+    "recomendacion": {
+      "rechazo_directo": [
+        "CR-003",
+        "CR-010",
+        "CR-013",
+        "CR-016"
+      ],
+      "derivar_si_no_cumple": [
+        "CR-001",
+        "CR-011",
+        "CR-014"
+      ]
     },
     "pesos_severidad": {
       "alta": 3,

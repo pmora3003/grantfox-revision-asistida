@@ -69,16 +69,6 @@ function correrPythonCasosPrueba(casosPath, salidaDir) {
   return porId
 }
 
-function salidasDesdeDatosJson() {
-  const data = JSON.parse(readFileSync(datosPath, 'utf8'))
-  const porId = new Map()
-  for (const item of data) {
-    const salida = item.salida || item
-    porId.set(salida.contributionId, salida)
-  }
-  return porId
-}
-
 function compararCaso(id, py, ts) {
   const diffs = []
   if (py.admissibility?.outcome !== ts.admissibility?.outcome) {
@@ -181,9 +171,9 @@ async function main() {
 
   const procesarEntrada = await loadProcesarEntrada()
 
-  // Demo: usar datos.json publicado (salida simulada ya materializada)
+  // Demo: datos.json puede traer salidas del modelo de lenguaje, que no son
+  // comparables con el motor de reglas; se corre el CLI en modo reglas a temp.
   const demoPath = join(repoRoot, 'data', 'casos-demo.jsonl')
-  const pyDemo = salidasDesdeDatosJson()
 
   // Prueba: correr CLI a temp y restaurar datos.json
   const pruebaPath = join(repoRoot, 'data', 'casos-prueba.jsonl')
@@ -197,6 +187,8 @@ async function main() {
       pyPrueba,
       procesarEntrada,
     )
+    const tmpDemo = join(tmp, 'demo')
+    const pyDemo = correrPythonCasosPrueba(demoPath, tmpDemo)
     fallos += await evaluarConjunto(
       'casos-demo',
       demoPath,

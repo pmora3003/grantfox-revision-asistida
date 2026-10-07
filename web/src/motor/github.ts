@@ -1,4 +1,5 @@
 import type { Entrada, FileStat } from '../types.ts'
+import { clasificarArchivo } from './clasificar.ts'
 
 const DIFF_MAX = 60000
 const MAX_FILE_PAGES = 3
@@ -166,7 +167,7 @@ export async function entradaDesdePR(
   }
 
   const fileStats: FileStat[] = []
-  const diffParts: string[] = []
+  const diffParts: { path: string; text: string }[] = []
   let truncated = false
   let page = 1
   let pagesExceeded = false
@@ -193,7 +194,7 @@ export async function entradaDesdePR(
       })
       const { text, missingPatch } = buildUnifiedDiff(f.filename, f.patch)
       if (missingPatch) truncated = true
-      else diffParts.push(text)
+      else diffParts.push({ path: f.filename, text })
     }
 
     if (files.length < 100) break
@@ -207,7 +208,19 @@ export async function entradaDesdePR(
 
   if (pagesExceeded) truncated = true
 
-  let diff = diffParts.join('')
+  // Mismo orden que el pipeline Python: trabajo propio primero, documentación y
+  // archivos generados al final, para que el tope recorte primero lo que no cuenta.
+  const ordenTipo: Record<string, number> = {
+    codigo: 0,
+    pruebas: 1,
+    configuracion: 2,
+    documentacion: 3,
+    generado: 4,
+  }
+  const ordenados = diffParts
+    .map((p, i) => ({ ...p, i, orden: ordenTipo[clasificarArchivo(p.path)] ?? 2 }))
+    .sort((a, b) => a.orden - b.orden || a.i - b.i)
+  let diff = ordenados.map((p) => p.text).join('')
   if (diff.length > DIFF_MAX) {
     diff = diff.slice(0, DIFF_MAX)
     truncated = true

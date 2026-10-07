@@ -75,6 +75,12 @@ const ETIQUETA_NIVEL: Record<string, string> = {
   evidencia_insuficiente: 'evidencia insuficiente',
   no_verificable: 'no verificable',
 }
+// RF-12: situación que el análisis nunca resuelve con los insumos de la solicitud.
+export const LIMITE_INFORMACION_EXTERNA =
+  'Las decisiones que dependen de información ajena a la solicitud, como la ' +
+  'política de distribución de pagos por persona contribuidora o el presupuesto ' +
+  'de la campaña, no se resuelven con este análisis'
+
 const RESUMEN_APROBAR_ORDEN: [string, string, number][] = [
   ['cumplimiento_alcance', 'Alcance', 5],
   ['calidad_tecnica', 'calidad técnica', 7],
@@ -204,9 +210,21 @@ export function agregarDimensiones(criterios: Criterio[]): DimensionValoracion[]
 export function agregarReward(
   requestedAmount: number | null | undefined,
   meta: Partial<MetaAnalisis>,
+  admissibility?: Admisibilidad | null,
 ): Reward {
   const monto = Math.trunc(Number(requestedAmount || 0))
   const requestedLevel = nivelParaMonto(monto)
+
+  // Sin admisibilidad no hay análisis de proporcionalidad: no se sugiere nivel ni monto.
+  if (admissibility?.outcome === 'no_admisible') {
+    return {
+      requestedAmount: monto,
+      requestedLevel,
+      suggestedLevel: null,
+      suggestedAmount: null,
+      levelMismatch: false,
+    }
+  }
 
   let suggestedLevel = (meta.suggestedLevel ||
     requestedLevel ||
@@ -381,6 +399,20 @@ function nCumplenDesdeAssessment(assessment: string): number {
   return m ? Number(m[1]) : 0
 }
 
+function resumenNiveles(etiqueta: string, niveles: string[]): string {
+  const total = niveles.length
+  const nOk = niveles.filter((n) => n === 'cumple').length
+  const nParcial = niveles.filter((n) => n === 'cumple_parcialmente').length
+  const nNo = niveles.filter((n) => n === 'no_cumple').length
+  const nInsuf = total - nOk - nParcial - nNo
+  const verbo = (n: number) => (n === 1 ? 'cumple' : 'cumplen')
+  const detalle = [`${nOk} de ${total} ${verbo(nOk)}`]
+  if (nParcial) detalle.push(`${nParcial} ${verbo(nParcial)} parcialmente`)
+  if (nNo) detalle.push(`${nNo} no ${verbo(nNo)}`)
+  if (nInsuf) detalle.push(`${nInsuf} con evidencia insuficiente`)
+  return `${etiqueta}: ${detalle.join(', ')}`
+}
+
 function fraseCriterio(c: Criterio): string {
   const nivel = ETIQUETA_NIVEL[c.level] || c.level
   const marco = c.marco || marcoDeCriterio(c.code).marco
@@ -425,6 +457,18 @@ function justificacionParrafo(
     )
   }
 
+  if (value === 'derivar_revision_humana' && codes.length) {
+    const frases = codes
+      .filter((c) => porCodigo[c])
+      .map((c) => fraseCriterio(porCodigo[c]!))
+    return (
+      'Se recomienda derivar a revisión humana. ' +
+      frases.join('. ') +
+      '. Este criterio no basta por sí solo para rechazar y la decisión ' +
+      'queda en manos de la persona revisora.'
+    )
+  }
+
   if (value === 'derivar_revision_humana') {
     const reasons = [...(confidence.reasons || [])]
     const detalle = reasons.length ? reasons.join('; ') : 'Confianza baja'
@@ -441,14 +485,18 @@ function justificacionParrafo(
       porDim[d.dimension] = d
     }
     const partes: string[] = []
-    RESUMEN_APROBAR_ORDEN.forEach(([dimKey, etiqueta, total], idx) => {
-      const assessment = porDim[dimKey]?.assessment || ''
-      const nOk = nCumplenDesdeAssessment(assessment)
-      if (idx === 0) {
-        partes.push(`${etiqueta}: ${nOk} de ${total} cumplen`)
-      } else {
-        partes.push(`${etiqueta}: ${nOk} de ${total}`)
+    RESUMEN_APROBAR_ORDEN.forEach(([dimKey, etiqueta, total]) => {
+      const niveles = Object.values(porCodigo)
+        .filter((c) => c.dimension === dimKey)
+        .map((c) => c.level)
+      if (!niveles.length) {
+        const assessment = porDim[dimKey]?.assessment || ''
+        partes.push(
+          `${etiqueta}: ${nCumplenDesdeAssessment(assessment)} de ${total} cumplen`,
+        )
+        return
       }
+      partes.push(resumenNiveles(etiqueta, niveles))
     })
     const resumen = partes.join('; ')
     const rw = reward || ({} as Reward)
@@ -458,7 +506,8 @@ function justificacionParrafo(
       `Monto solicitado ${monto} USDC, nivel ${nivel}, ` +
       'coincide con el nivel sugerido.'
     return (
-      'Se recomienda aprobar. Ningún criterio de severidad alta queda sin cumplir. ' +
+      'Se recomienda aprobar. Ningún criterio que motive rechazo o derivación ' +
+      'queda sin cumplir. ' +
       `${resumen}. ${lineaReward}`
     )
   }
@@ -576,17 +625,33 @@ export function agregarRecomendacion(
     )
   }
 
-  const altasNo: string[] = []
-  const severidad = escala.severidad as Record<string, string>
-  for (const [codigo, c] of Object.entries(porCodigo)) {
-    if (codigo === 'CR-012') continue
-    if (c.level !== 'no_cumple') continue
-    if (severidad[codigo] === 'alta') altasNo.push(codigo)
+  const reglasRec = (escala.recomendacion || {}) as {
+    rechazo_directo?: readonly string[]
+    derivar_si_no_cumple?: readonly string[]
   }
-  if (altasNo.length) {
+  const rechazos = (reglasRec.rechazo_directo || []).filter(
+    (c) => porCodigo[c]?.level === 'no_cumple',
+  )
+  if (rechazos.length) {
     return recomendacionConFundamentos(
       'rechazar',
-      altasNo,
+      rechazos,
+      porCodigo,
+      admissibility,
+      dimensions,
+      meta,
+      confidence,
+      reward,
+    )
+  }
+
+  const derivaciones = (reglasRec.derivar_si_no_cumple || []).filter(
+    (c) => porCodigo[c]?.level === 'no_cumple',
+  )
+  if (derivaciones.length) {
+    return recomendacionConFundamentos(
+      'derivar_revision_humana',
+      derivaciones,
       porCodigo,
       admissibility,
       dimensions,
@@ -692,6 +757,7 @@ export function agregarLimits(
   const limits = [
     'CA-005 no verificable con el insumo disponible',
     'Contenido de los comentarios de revisión no disponible',
+    LIMITE_INFORMACION_EXTERNA,
   ]
   if (insumoTruncado(entrada, meta)) {
     limits.push('Conjunto de diferencias truncado')
@@ -745,7 +811,7 @@ export function agregar(
 
   const criteriosAnotados = criterios.map(anotarCriterio)
   const dimensions = agregarDimensiones(criteriosAnotados)
-  const reward = agregarReward(entrada.requested_amount, metaNorm)
+  const reward = agregarReward(entrada.requested_amount, metaNorm, admissibility)
   const confidence = agregarConfianza(
     admissibility,
     criteriosAnotados,

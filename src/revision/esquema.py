@@ -125,7 +125,7 @@ class Reward(BaseModel):
     requestedAmount: int
     requestedLevel: NivelRecompensa | None
     suggestedLevel: NivelRecompensa | None
-    suggestedAmount: int
+    suggestedAmount: int | None
     levelMismatch: bool
 
 

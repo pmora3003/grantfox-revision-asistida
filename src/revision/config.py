@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -44,6 +44,7 @@ class ConfigEscala:
     modelo: dict[str, Any]
     techo_observado: int | None
     raw: dict[str, Any]
+    recomendacion: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -96,6 +97,7 @@ def cargar_escala(ruta: Path | None = None) -> ConfigEscala:
         modelo=dict(raw.get("modelo") or {}),
         techo_observado=int(techo) if techo is not None else None,
         raw=raw,
+        recomendacion=dict(raw.get("recomendacion") or {}),
     )
 
 
