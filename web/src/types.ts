@@ -188,6 +188,8 @@ export interface Salida {
 export interface CasoRevision {
   entrada: Entrada
   salida: Salida
+  /** Tokens de la llamada al modelo (solo corridas con el modelo de lenguaje). */
+  tokens?: { input_tokens?: number; output_tokens?: number }
 }
 
 /** Origen del ítem en la cola de revisión. */

@@ -172,6 +172,7 @@ Las etapas E1 a E5 de la UI (`web/src/etapas.ts`) son: admisibilidad, clasificac
 |---|---|---|
 | `data/casos-demo.jsonl` | 12 PR reales públicos, muestra con `scripts/muestra_demo.py`, semilla 42; solo campos de entrada | Sí |
 | `data/casos-prueba.jsonl` | 8 casos sintéticos para tests y paridad | Sí |
+| `data/casos-prueba-tfg.jsonl` | Los 13 casos de prueba del TFG, C-01 a C-13: solo campos de entrada normalizados, sin etiquetas y sin la dirección de la solicitud de integración | Sí |
 | `data/golden-set.jsonl` | 66 casos con etiquetas internas (decisiones del proceso) | No; gitignored; solo local |
 | `web/public/datos.json` | Salidas precalculadas de la demo | Sí |
 | `web/public/metricas.json` | Agregados de evaluación, sin ids ni casos individuales | Sí |
@@ -460,4 +461,5 @@ Ajustes del 7 de octubre de 2026, antes de la evaluación sobre los casos de pru
 | Penalización del motor de reglas en 0.20 | Con la banda alta desde 0.85, el motor de reglas no alcanza la banda alta en un caso de contenido |
 | La justificación de una aprobación cuenta por dimensión cuántos criterios cumplen, cumplen parcialmente, no cumplen o tienen evidencia insuficiente | Antes contaba solo los que cumplen y la lectura resultaba contradictoria |
 | La paridad de la demo se mide contra el CLI en modo reglas | `datos.json` ya trae salidas del modelo de lenguaje, que no son comparables con el motor de reglas |
+| Cada caso exportado a una corrida lleva los tokens de entrada y de salida de la llamada al modelo | Costo por contribución, a partir del precio de lista del modelo |
 

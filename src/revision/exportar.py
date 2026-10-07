@@ -101,7 +101,12 @@ def _armar_payload(
         salida = _cargar_salida(run, carpeta)
         if salida is None:
             continue
-        payload.append({"entrada": entrada, "salida": salida})
+        item: dict[str, Any] = {"entrada": entrada, "salida": salida}
+        tokens = run.get("tokens")
+        if tokens:
+            # Tokens de la llamada al modelo, para el costo por contribución.
+            item["tokens"] = tokens
+        payload.append(item)
     return payload
 
 
